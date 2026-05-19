@@ -1448,6 +1448,8 @@ class IPCHandlers {
         if (typeof filePath !== "string") return 0;
         const resolved = path.resolve(filePath);
         const real = fs.realpathSync(resolved);
+        // Paths originate from user interaction (OS file picker or drag-drop).
+        // home is broad but only reachable if the renderer is compromised.
         const allowedDirs = [
           require("os").tmpdir(),
           require("./safeTempDir").getSafeTempDir(),
@@ -2121,7 +2123,7 @@ class IPCHandlers {
           threshold: Math.min(1, Math.max(0, Number(options.threshold) || 0.55)),
         };
 
-        const { mergeSpeakersWithText, formatSpeakerTranscript } = require("./speakerMerge");
+        const { formatSpeakerTranscript } = require("./speakerMerge");
         const { convertToWav } = require("./ffmpegUtils");
         const { getSafeTempDir } = require("./safeTempDir");
         const wavPath = path.join(getSafeTempDir(), `ow-diarize-${Date.now()}.wav`);
@@ -6523,6 +6525,9 @@ class IPCHandlers {
             return { success: true, text: formatted, diarized: true };
           }
 
+          if (diarize) {
+            debugLogger.warn("BYOK diarization requested but provider returned no speaker data");
+          }
           return { success: true, text: data.data.text };
         } catch (error) {
           debugLogger.error("BYOK audio file transcription error", { error: error.message });

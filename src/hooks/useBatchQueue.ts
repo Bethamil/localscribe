@@ -165,6 +165,10 @@ export function useBatchQueue() {
 
           updateItem(item.id, { status: "transcribing", progress: 0 });
 
+          const byokUseDiarize = diarizationOpts.enabled &&
+            !transcribeOpts.useLocalWhisper && !transcribeOpts.isOpenWhisprCloud &&
+            (transcribeOpts.cloudTranscriptionProvider === "openai" || transcribeOpts.cloudTranscriptionProvider === "mistral");
+
           const transcribePromise = (async () => {
             if (transcribeOpts.isOpenWhisprCloud) {
               return window.electronAPI.transcribeAudioFileCloud!(filePath);
@@ -179,9 +183,6 @@ export function useBatchQueue() {
                     : transcribeOpts.whisperModel,
               });
             } else {
-              const byokUseDiarize = diarizationOpts.enabled &&
-                !transcribeOpts.useLocalWhisper && !transcribeOpts.isOpenWhisprCloud &&
-                (transcribeOpts.cloudTranscriptionProvider === "openai" || transcribeOpts.cloudTranscriptionProvider === "mistral");
               return window.electronAPI.transcribeAudioFileByok!({
                 filePath,
                 apiKey: snapshotApiKey,
@@ -191,10 +192,6 @@ export function useBatchQueue() {
               });
             }
           })();
-
-          const byokUseDiarize = diarizationOpts.enabled &&
-            !transcribeOpts.useLocalWhisper && !transcribeOpts.isOpenWhisprCloud &&
-            (transcribeOpts.cloudTranscriptionProvider === "openai" || transcribeOpts.cloudTranscriptionProvider === "mistral");
 
           const diarizePromise = diarizationOpts.enabled && filePath && !byokUseDiarize
             ? window.electronAPI.diarizeAudioFile?.(filePath, {

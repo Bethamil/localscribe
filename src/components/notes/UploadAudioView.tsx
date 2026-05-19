@@ -913,7 +913,7 @@ export default function UploadAudioView({ onNoteCreated, onOpenSettings }: Uploa
                     value={urlInput}
                     onChange={(e) => setUrlInput(e.target.value)}
                     onKeyDown={(e) => {
-                      if (e.key === "Enter") {
+                      if (e.key === "Enter" && !batch.isProcessing) {
                         e.preventDefault();
                         handleUrlSubmit();
                       }
