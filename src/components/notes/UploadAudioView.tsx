@@ -46,7 +46,7 @@ const TranscriptionModelPicker = React.lazy(() => import("../TranscriptionModelP
 
 type UploadState = "idle" | "selected" | "downloading" | "transcribing" | "complete" | "error";
 
-const SUPPORTED_EXTENSIONS = ["mp3", "wav", "m4a", "webm", "ogg", "flac", "aac"];
+const SUPPORTED_EXTENSIONS = ["mp3", "wav", "m4a", "webm", "ogg", "oga", "flac", "aac"];
 
 const BYOK_MAX_FILE_SIZE = 25 * 1024 * 1024; // 25 MB — hard limit for bring-your-own-key
 const CLOUD_FREE_MAX_FILE_SIZE = 25 * 1024 * 1024; // 25 MB — free plan cloud limit
@@ -1379,7 +1379,7 @@ function IdleView({
       <input
         ref={fileInputRef}
         type="file"
-        accept=".mp3,.wav,.m4a,.webm,.ogg,.flac,.aac"
+        accept=".mp3,.wav,.m4a,.webm,.ogg,.oga,.flac,.aac"
         onChange={handleFileInputChange}
         className="sr-only"
         tabIndex={-1}

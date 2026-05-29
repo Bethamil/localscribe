@@ -151,6 +151,80 @@ class ClipboardManager {
     clipboard.writeText(text);
   }
 
+  // PRIMARY selection (X11's "highlight to copy") is what terminals like alacritty,
+  // foot, konsole, xterm, and st bind Shift+Insert to. Mirror the transcription
+  // there so Shift+Insert pastes reliably regardless of which selection the
+  // terminal uses. Falls through wl-copy → xclip → xsel → Electron's selection
+  // target so we cover Wayland, X11, and XWayland setups.
+  _writePrimarySelection(text) {
+    if (process.platform !== "linux") return;
+
+    const { isWayland } = getLinuxSessionInfo();
+
+    if (isWayland && this.commandExists("wl-copy")) {
+      try {
+        const result = spawnSync("wl-copy", ["--primary", "--", text], { timeout: 50 });
+        if (result.status === 0) return;
+      } catch {}
+    }
+
+    if (this.commandExists("xclip")) {
+      try {
+        const result = spawnSync("xclip", ["-selection", "primary"], {
+          input: text,
+          timeout: 200,
+        });
+        if (result.status === 0) return;
+      } catch {}
+    }
+
+    if (this.commandExists("xsel")) {
+      try {
+        const result = spawnSync("xsel", ["--primary", "--input"], {
+          input: text,
+          timeout: 200,
+        });
+        if (result.status === 0) return;
+      } catch {}
+    }
+
+    try {
+      clipboard.writeText(text, "selection");
+    } catch {}
+  }
+
+  _readPrimarySelection() {
+    if (process.platform !== "linux") return null;
+
+    const { isWayland } = getLinuxSessionInfo();
+
+    if (isWayland && this.commandExists("wl-paste")) {
+      try {
+        const result = spawnSync("wl-paste", ["--primary", "--no-newline"], { timeout: 200 });
+        if (result.status === 0) return result.stdout.toString();
+      } catch {}
+    }
+
+    if (this.commandExists("xclip")) {
+      try {
+        const result = spawnSync("xclip", ["-selection", "primary", "-o"], { timeout: 200 });
+        if (result.status === 0) return result.stdout.toString();
+      } catch {}
+    }
+
+    if (this.commandExists("xsel")) {
+      try {
+        const result = spawnSync("xsel", ["--primary", "--output"], { timeout: 200 });
+        if (result.status === 0) return result.stdout.toString();
+      } catch {}
+    }
+
+    try {
+      return clipboard.readText("selection") || "";
+    } catch {}
+    return null;
+  }
+
   getNircmdPath() {
     if (this.nircmdChecked) {
       return this.nircmdPath;
@@ -349,10 +423,11 @@ class ClipboardManager {
     }
   }
 
-  _runPortalPaste(fastPasteBinary, useShift) {
+  _runPortalPaste(fastPasteBinary, { shiftInsert = false, terminal = false } = {}) {
     return new Promise((resolve, reject) => {
       const args = ["--portal"];
-      if (useShift) args.push("--terminal");
+      if (shiftInsert) args.push("--shift-insert");
+      else if (terminal) args.push("--terminal");
 
       const restoreToken = this._readPortalToken();
       if (restoreToken) {
@@ -590,12 +665,19 @@ class ClipboardManager {
     try {
       const shouldRestore = options.restoreClipboard !== false;
       const originalClipboard = shouldRestore ? this._saveClipboard() : null;
+      const originalPrimary =
+        platform === "linux" && shouldRestore ? this._readPrimarySelection() : null;
       if (shouldRestore) {
         this.safeLog("💾 Saved original clipboard:", originalClipboard.type);
       }
 
-      if (platform === "linux" && this._isWayland()) {
-        this._writeClipboardWayland(text, webContents);
+      if (platform === "linux") {
+        if (this._isWayland()) {
+          this._writeClipboardWayland(text, webContents);
+        } else {
+          clipboard.writeText(text);
+        }
+        this._writePrimarySelection(text);
       } else {
         clipboard.writeText(text);
       }
@@ -636,7 +718,9 @@ class ClipboardManager {
         }
         await this.pasteWindows(originalClipboard);
       } else {
-        method = (await this.pasteLinux(originalClipboard, options)) || "linux-tools";
+        method =
+          (await this.pasteLinux(originalClipboard, { ...options, originalPrimary })) ||
+          "linux-tools";
       }
 
       this.safeLog("✅ Paste operation complete", {
@@ -1036,6 +1120,7 @@ class ClipboardManager {
     const { isWayland, xwaylandAvailable, isGnome, isKde, isWlroots, isHyprland } =
       getLinuxSessionInfo();
     const webContents = options.webContents;
+    const originalPrimary = options.originalPrimary ?? null;
     const xdotoolExists = this.commandExists("xdotool");
     const wtypeExists = this.commandExists("wtype");
     const ydotoolExists = this.commandExists("ydotool");
@@ -1065,15 +1150,19 @@ class ClipboardManager {
     );
 
     const restoreClipboard = () => {
-      if (originalClipboard == null) return;
       const delay = isKde && isWayland ? RESTORE_DELAYS.linux_kde_wayland : RESTORE_DELAYS.linux;
-      setTimeout(() => {
-        if (isWayland && originalClipboard.type === "text") {
-          this._writeClipboardWayland(originalClipboard.data, webContents);
-        } else {
-          this._restoreClipboard(originalClipboard);
-        }
-      }, delay);
+      if (originalClipboard != null) {
+        setTimeout(() => {
+          if (isWayland && originalClipboard.type === "text") {
+            this._writeClipboardWayland(originalClipboard.data, webContents);
+          } else {
+            this._restoreClipboard(originalClipboard);
+          }
+        }, delay);
+      }
+      if (originalPrimary != null) {
+        setTimeout(() => this._writePrimarySelection(originalPrimary), delay);
+      }
     };
 
     const terminalClasses = [
@@ -1100,6 +1189,7 @@ class ClipboardManager {
       "sakura",
       "warp",
       "termius",
+      "waveterm",
     ];
 
     // Pre-detect the target window BEFORE our window takes focus or blurs,
@@ -1127,6 +1217,23 @@ class ClipboardManager {
       }
     };
 
+    // Some terminals (notably Konsole on X11) intermittently report no WM_CLASS via
+    // xdotool, leaving WM_CLASS detection blind. Fall back to the owning process
+    // name from /proc/<pid>/comm so terminal-aware paste keys still get chosen.
+    const preDetectWindowComm = (windowId) => {
+      if (!xdotoolExists || (isWayland && !xwaylandAvailable)) return null;
+      try {
+        const args = windowId ? ["getwindowpid", windowId] : ["getactivewindow", "getwindowpid"];
+        const result = spawnSync("xdotool", args, { timeout: 1000 });
+        if (result.status !== 0) return null;
+        const pid = parseInt(result.stdout.toString().trim(), 10);
+        if (!Number.isFinite(pid) || pid <= 0) return null;
+        return fs.readFileSync(`/proc/${pid}/comm`, "utf8").toLowerCase().trim() || null;
+      } catch {
+        return null;
+      }
+    };
+
     const targetWindowId = preDetectTargetWindow();
     let detectedWindowClass = preDetectWindowClass(targetWindowId);
 
@@ -1144,16 +1251,43 @@ class ClipboardManager {
       }
     }
 
-    if (linuxFastPaste) {
-      const earlyIsTerminal = detectedWindowClass
-        ? terminalClasses.some((t) => detectedWindowClass.includes(t))
-        : false;
+    const detectedWindowComm = preDetectWindowComm(targetWindowId);
+    const windowSignals = [detectedWindowClass, detectedWindowComm].filter(Boolean);
+    const signalsMatch = (needle) => windowSignals.some((signal) => signal.includes(needle));
+    const detectedIsKonsole = signalsMatch("konsole");
+
+    // Shift+Insert is the universal Linux paste shortcut — works in terminals and
+    // GUI apps, and (unlike Ctrl+V) is not intercepted by TUI agents like Codex,
+    // Claude Code, or OpenCode as "paste image". Use it whenever the target window
+    // can't be classified, or for Konsole which silently drops simulated Ctrl+Shift+V.
+    const useShiftInsert = detectedIsKonsole || (isWayland && windowSignals.length === 0);
+
+    // Konsole on X11 silently drops simulated Ctrl+Shift+V via XTest (a long-standing
+    // focus/grab quirk), and the native fast-paste binary uses XTest. Route Konsole+X11
+    // through the xdotool fallback instead, which sends shift+Insert with
+    // windowactivate --sync and reliably reaches the target window.
+    const skipFastPasteForKonsole = detectedIsKonsole && !isWayland;
+
+    if (linuxFastPaste && !skipFastPasteForKonsole) {
+      const earlyIsTerminal =
+        windowSignals.length > 0 ? terminalClasses.some((term) => signalsMatch(term)) : false;
+      const appendModeFlag = (args) => {
+        if (useShiftInsert) args.push("--shift-insert");
+        else if (earlyIsTerminal) args.push("--terminal");
+      };
 
       const spawnFastPaste = (args, label) =>
         new Promise((resolve, reject) => {
           debugLogger.debug(
             `Attempting native linux-fast-paste (${label})`,
-            { linuxFastPaste, args, targetWindowId, detectedWindowClass, earlyIsTerminal },
+            {
+              linuxFastPaste,
+              args,
+              targetWindowId,
+              detectedWindowClass,
+              detectedWindowComm,
+              earlyIsTerminal,
+            },
             "clipboard"
           );
           const proc = spawn(linuxFastPaste, args);
@@ -1193,7 +1327,7 @@ class ClipboardManager {
       if (isWayland) {
         const tryUinputPaste = async () => {
           const args = ["--uinput"];
-          if (earlyIsTerminal) args.push("--terminal");
+          appendModeFlag(args);
           await spawnFastPaste(args, "uinput");
           this.safeLog("✅ Paste successful using native linux-fast-paste (uinput)");
           debugLogger.info(
@@ -1208,7 +1342,10 @@ class ClipboardManager {
           const MAX_PORTAL_RETRIES = 3;
           for (let attempt = 0; attempt < MAX_PORTAL_RETRIES; attempt++) {
             try {
-              const portalResult = await this._runPortalPaste(linuxFastPaste, earlyIsTerminal);
+              const portalResult = await this._runPortalPaste(linuxFastPaste, {
+                shiftInsert: useShiftInsert,
+                terminal: earlyIsTerminal,
+              });
               this.safeLog("✅ Paste successful using linux-fast-paste --portal (RemoteDesktop)");
               debugLogger.info(
                 "Paste successful",
@@ -1284,7 +1421,7 @@ class ClipboardManager {
         if (xwaylandAvailable) {
           const xtestArgs = [];
           if (targetWindowId) xtestArgs.push("--window", targetWindowId);
-          if (earlyIsTerminal) xtestArgs.push("--terminal");
+          appendModeFlag(xtestArgs);
 
           try {
             await spawnFastPaste(xtestArgs, "XTest/XWayland fallback");
@@ -1309,7 +1446,7 @@ class ClipboardManager {
       } else {
         const xtestArgs = [];
         if (targetWindowId) xtestArgs.push("--window", targetWindowId);
-        if (earlyIsTerminal) xtestArgs.push("--terminal");
+        appendModeFlag(xtestArgs);
 
         try {
           await spawnFastPaste(xtestArgs, "XTest");
@@ -1336,18 +1473,15 @@ class ClipboardManager {
 
     // Terminals use Ctrl+Shift+V instead of Ctrl+V
     const isTerminal = () => {
-      if (!detectedWindowClass) return false;
-      const isTerminalWindow = terminalClasses.some((term) => detectedWindowClass.includes(term));
+      if (windowSignals.length === 0) return false;
+      const isTerminalWindow = terminalClasses.some((term) => signalsMatch(term));
       if (isTerminalWindow) {
-        this.safeLog(`🖥️ Terminal detected: ${detectedWindowClass}`);
+        this.safeLog(`🖥️ Terminal detected: ${windowSignals.join(" | ")}`);
       }
       return isTerminalWindow;
     };
 
     const inTerminal = isTerminal();
-    // On Wayland, when window class is unknown, use Shift+Insert as universal paste
-    // (works in both terminals and GUI apps, avoids Ctrl+V printing ^V in terminals)
-    const useShiftInsert = isWayland && !detectedWindowClass;
     const pasteKeys = useShiftInsert ? "shift+Insert" : inTerminal ? "ctrl+shift+v" : "ctrl+v";
 
     const canUseWtype = isWayland && isWlroots;
@@ -1361,7 +1495,7 @@ class ClipboardManager {
 
     if (targetWindowId) {
       this.safeLog(
-        `🎯 Targeting window ID ${targetWindowId} for paste (class: ${detectedWindowClass})`
+        `🎯 Targeting window ID ${targetWindowId} for paste (signals: ${windowSignals.join(" | ") || "none"})`
       );
     }
 
@@ -1415,6 +1549,7 @@ class ClipboardManager {
         availableTools: available.map((c) => c.cmd),
         targetWindowId,
         detectedWindowClass,
+        detectedWindowComm,
         inTerminal,
         useShiftInsert,
         pasteKeys,
