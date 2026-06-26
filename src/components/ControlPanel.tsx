@@ -756,12 +756,13 @@ export default function ControlPanel({ initialSettingsSection }: ControlPanelPro
       <div className="flex flex-1 overflow-hidden">
         <div
           className="shrink-0 overflow-hidden transition-[width] duration-300 ease-out"
-          style={{ width: isSidePanelLayout || sidebarCollapsed ? 0 : undefined }}
+          style={{ width: isSidePanelLayout ? 0 : undefined }}
         >
           <ControlPanelSidebar
             activeView={activeView}
             onViewChange={setActiveView}
             onToggleCollapse={toggleSidebar}
+            collapsed={sidebarCollapsed}
             onOpenSearch={() => setShowSearch(true)}
             onOpenSettings={() => {
               setSettingsSection(undefined);
@@ -820,9 +821,9 @@ export default function ControlPanel({ initialSettingsSection }: ControlPanelPro
                 </Button>
               </div>
             )}
-            {sidebarCollapsed && !isSidePanelLayout && (
+            {sidebarCollapsed && !isSidePanelLayout && platform === "darwin" && (
               <div
-                className={platform === "darwin" ? "ml-21 mt-4" : "ml-2"}
+                className="ml-5 mt-4"
                 style={{ WebkitAppRegion: "no-drag" } as React.CSSProperties}
               >
                 <button
