@@ -196,7 +196,7 @@ class DatabaseManager {
       }
 
       const videosFolder = this.db
-        .prepare("SELECT id, is_default FROM folders WHERE name = 'Videos'")
+        .prepare("SELECT id, is_default, sort_order FROM folders WHERE name = 'Videos'")
         .get();
       if (!videosFolder) {
         const maxOrder = this.db

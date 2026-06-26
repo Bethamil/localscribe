@@ -88,8 +88,7 @@
     "**/node_modules/ffmpeg-static/**/*",
     "**/node_modules/better-sqlite3/**/*",
     "**/node_modules/onnxruntime-node/**/*",
-    "**/node_modules/@napi-rs/keyring/**/*",
-    "**/node_modules/youtube-dl-exec/**/*"
+    "**/node_modules/@napi-rs/keyring/**/*"
   ],
   "extraResources": [
     ".env",
@@ -102,6 +101,7 @@
         "whisper-server-*",
         "llama-server-*",
         "sherpa-onnx-*",
+        "yt-dlp-*",
         "qdrant-*",
         "macos-audio-tap",
         "macos-globe-listener",

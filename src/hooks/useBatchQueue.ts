@@ -4,7 +4,6 @@ export type QueueItemStatus =
   | "queued"
   | "downloading"
   | "transcribing"
-  | "diarizing"
   | "done"
   | "error";
 
@@ -38,6 +37,21 @@ export interface TranscribeOptions {
 export interface DiarizationOptions {
   enabled: boolean;
   numSpeakers: number | null;
+}
+
+export function computeByokDiarize(opts: {
+  diarizationEnabled: boolean;
+  useLocalWhisper: boolean;
+  isOpenWhisprCloud: boolean;
+  cloudTranscriptionProvider: string;
+}): boolean {
+  return (
+    opts.diarizationEnabled &&
+    !opts.useLocalWhisper &&
+    !opts.isOpenWhisprCloud &&
+    (opts.cloudTranscriptionProvider === "openai" ||
+      opts.cloudTranscriptionProvider === "mistral")
+  );
 }
 
 export function useBatchQueue() {
@@ -165,9 +179,12 @@ export function useBatchQueue() {
 
           updateItem(item.id, { status: "transcribing", progress: 0 });
 
-          const byokUseDiarize = diarizationOpts.enabled &&
-            !transcribeOpts.useLocalWhisper && !transcribeOpts.isOpenWhisprCloud &&
-            (transcribeOpts.cloudTranscriptionProvider === "openai" || transcribeOpts.cloudTranscriptionProvider === "mistral");
+          const byokUseDiarize = computeByokDiarize({
+            diarizationEnabled: diarizationOpts.enabled,
+            useLocalWhisper: transcribeOpts.useLocalWhisper,
+            isOpenWhisprCloud: transcribeOpts.isOpenWhisprCloud,
+            cloudTranscriptionProvider: transcribeOpts.cloudTranscriptionProvider,
+          });
 
           const transcribePromise = (async () => {
             if (transcribeOpts.isOpenWhisprCloud) {

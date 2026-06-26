@@ -37,8 +37,9 @@ import {
   selectIsCloudCleanupMode,
   getSettings,
 } from "../../stores/settingsStore";
-import { useBatchQueue } from "../../hooks/useBatchQueue";
+import { useBatchQueue, computeByokDiarize } from "../../hooks/useBatchQueue";
 import type { TranscribeOptions, DiarizationOptions } from "../../hooks/useBatchQueue";
+import { MAX_SPEAKER_COUNT } from "../../constants/speakerDetection.json";
 import BatchQueueView from "./BatchQueueView";
 import { generateNoteTitle } from "../../utils/generateTitle";
 
@@ -434,9 +435,12 @@ export default function UploadAudioView({ onNoteCreated, onOpenSettings }: Uploa
     }
 
     try {
-      const byokUseDiarize = diarizationEnabled &&
-        !useLocalWhisper && !isOpenWhisprCloud &&
-        (cloudTranscriptionProvider === "openai" || cloudTranscriptionProvider === "mistral");
+      const byokUseDiarize = computeByokDiarize({
+        diarizationEnabled,
+        useLocalWhisper,
+        isOpenWhisprCloud,
+        cloudTranscriptionProvider,
+      });
 
       const diarizePromise =
         diarizationEnabled && diarizationModelsReady && !byokUseDiarize
@@ -1206,12 +1210,12 @@ export default function UploadAudioView({ onNoteCreated, onOpenSettings }: Uploa
                 <input
                   type="number"
                   min="2"
-                  max="20"
+                  max={MAX_SPEAKER_COUNT}
                   value={diarizationNumSpeakers}
                   onChange={(e) => {
                     const raw = e.target.value;
                     if (raw === "") { setDiarizationNumSpeakers(""); return; }
-                    const n = Math.max(2, Math.min(20, Number(raw)));
+                    const n = Math.max(2, Math.min(MAX_SPEAKER_COUNT, Number(raw)));
                     setDiarizationNumSpeakers(String(isNaN(n) ? "" : n));
                   }}
                   placeholder={t("notes.upload.numSpeakersPlaceholder")}

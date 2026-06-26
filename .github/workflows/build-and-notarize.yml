@@ -56,6 +56,11 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GH_TOKEN || github.token }}
 
+      - name: Download yt-dlp binary
+        run: node scripts/download-yt-dlp.js --current
+        env:
+          GITHUB_TOKEN: ${{ secrets.GH_TOKEN || github.token }}
+
       - name: Download Qdrant binary
         run: node scripts/download-qdrant.js --current
         env:
@@ -135,6 +140,11 @@ jobs:
 
       - name: Download sherpa-onnx binaries
         run: node scripts/download-sherpa-onnx.js --current
+        env:
+          GITHUB_TOKEN: ${{ secrets.GH_TOKEN || github.token }}
+
+      - name: Download yt-dlp binary
+        run: node scripts/download-yt-dlp.js --current
         env:
           GITHUB_TOKEN: ${{ secrets.GH_TOKEN || github.token }}
 
@@ -255,6 +265,11 @@ jobs:
 
       - name: Download sherpa-onnx binaries
         run: node scripts/download-sherpa-onnx.js --current --platform darwin --arch ${{ matrix.arch }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GH_TOKEN || github.token }}
+
+      - name: Download yt-dlp binary
+        run: node scripts/download-yt-dlp.js --current --platform darwin --arch ${{ matrix.arch }}
         env:
           GITHUB_TOKEN: ${{ secrets.GH_TOKEN || github.token }}
 

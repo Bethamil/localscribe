@@ -2213,7 +2213,6 @@
       "speakerDetectionDescription": "Identify different speakers in the audio",
       "numSpeakersPlaceholder": "Auto-detect",
       "downloadingModels": "Downloading models...",
-      "diarizing": "Detecting speakers...",
       "openaiDiarizeNote": "Overrides your transcription model with gpt-4o-transcribe-diarize, the only OpenAI model with speaker detection. Costs may differ from your selected model.",
       "mistralDiarizeNote": "Speaker detection included at no extra cost with Voxtral.",
       "groqDiarizeNote": "Speaker detection is not available with Groq. Local diarization will be used instead.",

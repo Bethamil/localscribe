@@ -43,12 +43,20 @@ function mergeSpeakersWithText(segments, text, durationSeconds) {
     const sentenceMidpoint = ((charOffset + sentence.length / 2) / totalChars) * totalDuration;
     charOffset += sentence.length;
 
-    let bestSegment = segments[segments.length - 1];
+    let bestSegment = null;
+    let bestDistance = Number.POSITIVE_INFINITY;
     for (const seg of segments) {
-      if (sentenceMidpoint >= seg.start && sentenceMidpoint < seg.end) {
+      const distance =
+        sentenceMidpoint < seg.start
+          ? seg.start - sentenceMidpoint
+          : sentenceMidpoint > seg.end
+            ? sentenceMidpoint - seg.end
+            : 0;
+      if (distance < bestDistance) {
+        bestDistance = distance;
         bestSegment = seg;
-        break;
       }
+      if (distance === 0) break;
     }
 
     assigned.push({

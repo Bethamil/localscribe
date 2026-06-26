@@ -2006,7 +2006,6 @@
       "speakerDetectionDescription": "Identificar diferentes locutores no áudio",
       "numSpeakersPlaceholder": "Detecção automática",
       "downloadingModels": "Baixando modelos...",
-      "diarizing": "Detectando locutores...",
       "openaiDiarizeNote": "Substitui seu modelo de transcrição por gpt-4o-transcribe-diarize, o único modelo OpenAI com detecção de falantes. Os custos podem diferir do modelo selecionado.",
       "mistralDiarizeNote": "Detecção de falantes incluída sem custo adicional com Voxtral.",
       "groqDiarizeNote": "A detecção de falantes não está disponível com Groq. A diarização local será usada.",

@@ -2001,7 +2001,6 @@
       "speakerDetectionDescription": "识别音频中的不同说话人",
       "numSpeakersPlaceholder": "自动检测",
       "downloadingModels": "正在下载模型...",
-      "diarizing": "正在检测说话人...",
       "openaiDiarizeNote": "将替换您的转录模型为 gpt-4o-transcribe-diarize，这是唯一支持说话人检测的 OpenAI 模型。费用可能与您选择的模型不同。",
       "mistralDiarizeNote": "使用 Voxtral 时说话人检测无需额外费用。",
       "groqDiarizeNote": "Groq 不支持说话人检测。将改用本地分离。",

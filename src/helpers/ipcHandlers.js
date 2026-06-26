@@ -83,6 +83,28 @@ const CLOUD_CHUNK_SEGMENT_SECONDS = 240;
 
 const { formatTimestamp: formatDiarTime } = require("./speakerMerge");
 
+// Canonicalize allowed dirs so realpath'd inputs match on macOS (/var -> /private/var). See PR #754.
+function getCanonicalAllowedAudioDirs() {
+  const os = require("os");
+  const { getSafeTempDir } = require("./safeTempDir");
+  // Paths originate from user interaction (OS file picker, drag-drop, or our temp downloads).
+  // home is broad but only reachable if the renderer is compromised.
+  const dirs = [os.tmpdir(), getSafeTempDir(), app.getPath("userData"), app.getPath("home")];
+  return dirs.map((d) => {
+    try { return fs.realpathSync(d); } catch { return d; }
+  });
+}
+
+// Returns the realpath'd file path if it lives under an allowed dir, else null.
+function resolveAllowedAudioPath(filePath) {
+  const real = fs.realpathSync(path.resolve(filePath));
+  const allowed = getCanonicalAllowedAudioDirs();
+  if (allowed.some((dir) => real === dir || real.startsWith(dir + path.sep))) {
+    return real;
+  }
+  return null;
+}
+
 function buildMultipartBody(fileBuffer, fileName, contentType, fields = {}) {
   const boundary = `----OpenWhispr${Date.now()}`;
   const parts = [];
@@ -1433,19 +1455,8 @@ class IPCHandlers {
       const fs = require("fs");
       try {
         if (typeof filePath !== "string") return 0;
-        const resolved = path.resolve(filePath);
-        const real = fs.realpathSync(resolved);
-        // Paths originate from user interaction (OS file picker or drag-drop).
-        // home is broad but only reachable if the renderer is compromised.
-        const allowedDirs = [
-          require("os").tmpdir(),
-          require("./safeTempDir").getSafeTempDir(),
-          app.getPath("userData"),
-          app.getPath("home"),
-        ];
-        if (!allowedDirs.some((dir) => real.startsWith(dir + path.sep) || real === dir)) {
-          return 0;
-        }
+        const real = resolveAllowedAudioPath(filePath);
+        if (!real) return 0;
         const stats = fs.statSync(real);
         return stats.size;
       } catch {
@@ -1506,21 +1517,16 @@ class IPCHandlers {
         }
         const { getSafeTempDir } = require("./safeTempDir");
         const resolved = path.resolve(filePath);
-        const tempDir = getSafeTempDir();
         const basename = path.basename(resolved);
         if (!basename.startsWith("ow-url-") && !basename.startsWith("ow-diarize-")) {
           return { success: false, error: "Not an OpenWhispr temp file" };
         }
         const real = fs.realpathSync(resolved);
+        let tempDir = getSafeTempDir();
+        try { tempDir = fs.realpathSync(tempDir); } catch {}
         const rel = path.relative(tempDir, real);
         if (rel.startsWith("..") || path.isAbsolute(rel)) {
           return { success: false, error: "Not an OpenWhispr temp file" };
-        }
-        if (process.platform !== "win32") {
-          const stat = fs.lstatSync(real);
-          if (stat.isSymbolicLink()) {
-            return { success: false, error: "Not an OpenWhispr temp file" };
-          }
         }
         fs.unlinkSync(real);
         return { success: true };
@@ -1536,17 +1542,8 @@ class IPCHandlers {
         if (typeof filePath !== "string") {
           return { success: false, error: "Invalid file path" };
         }
-        const resolved = path.resolve(filePath);
-        const real = fs.realpathSync(resolved);
-        const allowedDirs = [
-          require("os").tmpdir(),
-          require("./safeTempDir").getSafeTempDir(),
-          app.getPath("userData"),
-          app.getPath("home"),
-        ];
-        if (!allowedDirs.some((dir) => real.startsWith(dir + path.sep) || real === dir)) {
-          return { success: false, error: "File path not allowed" };
-        }
+        const real = resolveAllowedAudioPath(filePath);
+        if (!real) return { success: false, error: "File path not allowed" };
         const audioBuffer = fs.readFileSync(real);
         if (options.provider === "nvidia") {
           const result = await this.parakeetManager.transcribeLocalParakeet(audioBuffer, options);
@@ -2096,17 +2093,8 @@ class IPCHandlers {
         if (typeof filePath !== "string") {
           return { success: false, error: "Invalid file path" };
         }
-        const resolved = path.resolve(filePath);
-        const realPath = fs.realpathSync(resolved);
-        const allowedDirs = [
-          require("os").tmpdir(),
-          require("./safeTempDir").getSafeTempDir(),
-          app.getPath("userData"),
-          app.getPath("home"),
-        ];
-        if (!allowedDirs.some((dir) => realPath.startsWith(dir + path.sep) || realPath === dir)) {
-          return { success: false, error: "File path not allowed" };
-        }
+        const realPath = resolveAllowedAudioPath(filePath);
+        if (!realPath) return { success: false, error: "File path not allowed" };
         filePath = realPath;
 
         const diarOpts = {
@@ -2114,7 +2102,6 @@ class IPCHandlers {
           threshold: Math.min(1, Math.max(0, Number(options.threshold) || 0.55)),
         };
 
-        const { formatSpeakerTranscript } = require("./speakerMerge");
         const { convertToWav } = require("./ffmpegUtils");
         const { getSafeTempDir } = require("./safeTempDir");
         const wavPath = path.join(getSafeTempDir(), `ow-diarize-${Date.now()}.wav`);
@@ -2122,7 +2109,7 @@ class IPCHandlers {
         try {
           await convertToWav(filePath, wavPath, { sampleRate: 16000, channels: 1 });
           const segments = await this.diarizationManager.diarize(wavPath, diarOpts);
-          return { success: true, segments, formattedText: segments.length > 0 ? formatSpeakerTranscript(segments) : null };
+          return { success: true, segments };
         } finally {
           try { fs.unlinkSync(wavPath); } catch {}
         }
@@ -2136,6 +2123,9 @@ class IPCHandlers {
       try {
         if (!Array.isArray(segments) || typeof text !== "string" || typeof duration !== "number" || !isFinite(duration)) {
           return { success: false, error: "Invalid arguments" };
+        }
+        if (segments.length > 10000 || text.length > 1_000_000) {
+          return { success: false, error: "Input too large" };
         }
         const sanitizedSegments = segments.map((s) => ({
           speaker: typeof s.speaker === "string" ? s.speaker.slice(0, 100) : "unknown",
@@ -2500,8 +2490,8 @@ class IPCHandlers {
     ipcMain.handle("open-external", async (event, url) => {
       try {
         const parsed = new URL(url);
-        if (parsed.protocol !== "https:" && parsed.protocol !== "http:") {
-          return { success: false, error: "Only HTTP/HTTPS URLs are allowed" };
+        if (parsed.protocol !== "https:" && parsed.protocol !== "http:" && parsed.protocol !== "mailto:") {
+          return { success: false, error: "Only HTTP/HTTPS/mailto URLs are allowed" };
         }
         await shell.openExternal(parsed.href);
         return { success: true };
@@ -6358,17 +6348,8 @@ class IPCHandlers {
         if (typeof filePath !== "string") {
           return { success: false, error: "Invalid file path" };
         }
-        const resolvedCloud = path.resolve(filePath);
-        const realCloud = fs.realpathSync(resolvedCloud);
-        const allowedCloudDirs = [
-          require("os").tmpdir(),
-          require("./safeTempDir").getSafeTempDir(),
-          app.getPath("userData"),
-          app.getPath("home"),
-        ];
-        if (!allowedCloudDirs.some((dir) => realCloud.startsWith(dir + path.sep) || realCloud === dir)) {
-          return { success: false, error: "File path not allowed" };
-        }
+        const realCloud = resolveAllowedAudioPath(filePath);
+        if (!realCloud) return { success: false, error: "File path not allowed" };
 
         const apiUrl = getApiUrl();
         if (!apiUrl) throw new Error("OpenWhispr API URL not configured");
@@ -6435,17 +6416,8 @@ class IPCHandlers {
           if (typeof filePath !== "string") {
             return { success: false, error: "Invalid file path" };
           }
-          const resolvedByok = path.resolve(filePath);
-          const realByok = fs.realpathSync(resolvedByok);
-          const allowedByokDirs = [
-            require("os").tmpdir(),
-            require("./safeTempDir").getSafeTempDir(),
-            app.getPath("userData"),
-            app.getPath("home"),
-          ];
-          if (!allowedByokDirs.some((dir) => realByok.startsWith(dir + path.sep) || realByok === dir)) {
-            return { success: false, error: "File path not allowed" };
-          }
+          const realByok = resolveAllowedAudioPath(filePath);
+          if (!realByok) return { success: false, error: "File path not allowed" };
 
           if (!apiKey) throw new Error("No API key configured. Add your key in Settings.");
           if (!baseUrl) throw new Error("No transcription endpoint configured.");

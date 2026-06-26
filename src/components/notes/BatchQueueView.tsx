@@ -99,12 +99,6 @@ export default function BatchQueueView({
               </div>
             )}
 
-            {item.status === "diarizing" && (
-              <span className="text-[10px] text-primary/50">
-                {t("notes.upload.diarizing")}
-              </span>
-            )}
-
             {item.status === "done" && item.noteId && onOpenNote && (
               <button
                 onClick={() => onOpenNote(item.noteId!)}
