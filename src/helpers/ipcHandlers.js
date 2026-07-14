@@ -130,15 +130,19 @@ const CLOUD_CHUNK_CONCURRENCY = 5;
 const CLOUD_CHUNK_SEGMENT_SECONDS = 240;
 const CLOUD_CHUNK_MAX_ATTEMPTS = 3;
 
-const { formatTimestamp: formatDiarTime } = require("./speakerMerge");
+const {
+  formatTimestamp: formatDiarTime,
+  mergeSpeakersWithText,
+  formatSpeakerTranscript,
+} = require("./speakerMerge");
 
-// Canonicalize allowed dirs so realpath'd inputs match on macOS (/var -> /private/var). See PR #754.
+// Canonicalize allowed dirs so realpath'd inputs match on macOS (/var -> /private/var).
+// Deliberately narrow: user-picked paths anywhere else are approved individually via
+// approvedAudioPaths, so a compromised renderer can't read arbitrary files.
 function getCanonicalAllowedAudioDirs() {
   const os = require("os");
   const { getSafeTempDir } = require("./safeTempDir");
-  // Paths originate from user interaction (OS file picker, drag-drop, or our temp downloads).
-  // home is broad but only reachable if the renderer is compromised.
-  const dirs = [os.tmpdir(), getSafeTempDir(), app.getPath("userData"), app.getPath("home")];
+  const dirs = [os.tmpdir(), getSafeTempDir(), app.getPath("userData")];
   return dirs.map((d) => {
     try { return fs.realpathSync(d); } catch { return d; }
   });
@@ -1720,28 +1724,25 @@ class IPCHandlers {
       }
     });
 
-    let activeUrlDownloadAbort = null;
+    const activeUrlDownloads = new Map();
+    let urlDownloadSeq = 0;
 
-    ipcMain.handle("download-url-audio", async (event, url) => {
+    ipcMain.handle("download-url-audio", async (event, url, downloadId) => {
       if (typeof url !== "string" || url.length > 2048) {
         return { success: false, error: "Invalid URL", code: "INVALID_URL" };
       }
       const { download } = require("./urlAudioDownloader");
 
-      if (activeUrlDownloadAbort) {
-        activeUrlDownloadAbort.abort();
-        activeUrlDownloadAbort = null;
-      }
-
+      const id = typeof downloadId === "string" && downloadId ? downloadId : `dl-${++urlDownloadSeq}`;
       const abortController = new AbortController();
-      activeUrlDownloadAbort = abortController;
+      activeUrlDownloads.set(id, abortController);
 
       try {
         const result = await download(
           url,
           (progress) => {
             if (!event.sender.isDestroyed()) {
-              event.sender.send("url-download-progress", progress);
+              event.sender.send("url-download-progress", { ...progress, downloadId: id });
             }
           },
           abortController.signal
@@ -1751,19 +1752,25 @@ class IPCHandlers {
         debugLogger.error("URL audio download error", { error: error.message, code: error.code });
         return { success: false, error: error.message, code: error.code || "DOWNLOAD_FAILED" };
       } finally {
-        if (activeUrlDownloadAbort === abortController) {
-          activeUrlDownloadAbort = null;
+        if (activeUrlDownloads.get(id) === abortController) {
+          activeUrlDownloads.delete(id);
         }
       }
     });
 
-    ipcMain.handle("cancel-url-download", async () => {
-      if (activeUrlDownloadAbort) {
-        activeUrlDownloadAbort.abort();
-        activeUrlDownloadAbort = null;
+    // With an id, cancels that download; without, cancels all (unmount cleanup).
+    ipcMain.handle("cancel-url-download", async (_event, downloadId) => {
+      if (typeof downloadId === "string" && downloadId) {
+        const controller = activeUrlDownloads.get(downloadId);
+        if (!controller) return { success: false };
+        controller.abort();
+        activeUrlDownloads.delete(downloadId);
         return { success: true };
       }
-      return { success: false };
+      if (activeUrlDownloads.size === 0) return { success: false };
+      for (const controller of activeUrlDownloads.values()) controller.abort();
+      activeUrlDownloads.clear();
+      return { success: true };
     });
 
     ipcMain.handle("delete-temp-file", async (event, filePath) => {
@@ -2394,7 +2401,6 @@ class IPCHandlers {
           start: typeof s.start === "number" && isFinite(s.start) ? s.start : 0,
           end: typeof s.end === "number" && isFinite(s.end) ? s.end : 0,
         }));
-        const { mergeSpeakersWithText, formatSpeakerTranscript } = require("./speakerMerge");
         const merged = mergeSpeakersWithText(sanitizedSegments, text, duration);
         return { success: true, text: formatSpeakerTranscript(merged) };
       } catch (error) {

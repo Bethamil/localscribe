@@ -714,7 +714,7 @@ declare global {
       getPathForFile: (file: File) => string;
 
       // URL audio download
-      downloadUrlAudio: (url: string) => Promise<
+      downloadUrlAudio: (url: string, downloadId?: string) => Promise<
         | {
             success: true;
             tempPath: string;
@@ -724,13 +724,14 @@ declare global {
           }
         | { success: false; error: string; code?: string }
       >;
-      cancelUrlDownload: () => Promise<{ success: boolean }>;
+      cancelUrlDownload: (downloadId?: string) => Promise<{ success: boolean }>;
       deleteTempFile: (filePath: string) => Promise<{ success: boolean; error?: string }>;
       onUrlDownloadProgress?: (
         callback: (data: {
           stage: "resolving" | "downloading" | "converting" | "ready";
           percent: number;
           title?: string;
+          downloadId?: string;
         }) => void
       ) => () => void;
 

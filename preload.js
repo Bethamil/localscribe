@@ -165,8 +165,8 @@ contextBridge.exposeInMainWorld("electronAPI", {
   },
 
   // URL audio download
-  downloadUrlAudio: (url) => ipcRenderer.invoke("download-url-audio", url),
-  cancelUrlDownload: () => ipcRenderer.invoke("cancel-url-download"),
+  downloadUrlAudio: (url, downloadId) => ipcRenderer.invoke("download-url-audio", url, downloadId),
+  cancelUrlDownload: (downloadId) => ipcRenderer.invoke("cancel-url-download", downloadId),
   deleteTempFile: (filePath) => ipcRenderer.invoke("delete-temp-file", filePath),
   onUrlDownloadProgress: registerListener(
     "url-download-progress",

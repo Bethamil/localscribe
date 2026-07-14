@@ -511,8 +511,7 @@ app.on("open-url", (event, url) => {
     return;
   }
 
-  const invitationPath = url.slice(`${OAUTH_PROTOCOL}://`.length);
-  if (invitationPath.startsWith("invitations/")) {
+  if (isInvitationDeepLink(url)) {
     handleInvitationDeepLink(url);
     return;
   }
@@ -524,6 +523,10 @@ app.on("open-url", (event, url) => {
     windowManager.controlPanelWindow.focus();
   }
 });
+
+function isInvitationDeepLink(url) {
+  return url.slice(`${OAUTH_PROTOCOL}://`.length).startsWith("invitations/");
+}
 
 function handleInvitationDeepLink(deepLinkUrl) {
   try {
@@ -1483,7 +1486,7 @@ if (gotSingleInstanceLock) {
     if (url) {
       if (url.includes("upgrade-success")) {
         handleUpgradeDeepLink();
-      } else if (url.slice(`${OAUTH_PROTOCOL}://`.length).startsWith("invitations/")) {
+      } else if (isInvitationDeepLink(url)) {
         handleInvitationDeepLink(url);
       } else {
         void handleOAuthDeepLink(url);
