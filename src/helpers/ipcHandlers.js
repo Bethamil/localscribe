@@ -1850,7 +1850,11 @@ class IPCHandlers {
         });
         return result;
       } catch (error) {
-        if (!event.sender.isDestroyed()) {
+        if (
+          error.code !== "DOWNLOAD_IN_PROGRESS" &&
+          error.code !== "DOWNLOAD_CANCELLED" &&
+          !event.sender.isDestroyed()
+        ) {
           event.sender.send("whisper-download-progress", {
             type: "error",
             model: modelName,
@@ -2099,7 +2103,11 @@ class IPCHandlers {
         );
         return result;
       } catch (error) {
-        if (!event.sender.isDestroyed()) {
+        if (
+          error.code !== "DOWNLOAD_IN_PROGRESS" &&
+          error.code !== "DOWNLOAD_CANCELLED" &&
+          !event.sender.isDestroyed()
+        ) {
           event.sender.send("parakeet-download-progress", {
             type: "error",
             model: modelName,
