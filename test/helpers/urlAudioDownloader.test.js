@@ -654,3 +654,131 @@ test("downloadViaProxy rejects with DOWNLOAD_CANCELLED on mid-flight abort", asy
     downloader._setElectronNetForTests(null);
   }
 });
+
+// --- selectYtDlpOutput: finished-file selection + transient cleanup ---
+
+function mkSelectDir() {
+  return fs.mkdtempSync(path.join(os.tmpdir(), "ow-ytdlp-select-"));
+}
+
+// Create a prefix-matched file with a fixed mtime (seconds) to make ordering deterministic.
+function writeAt(dir, name, mtimeSeconds) {
+  const p = path.join(dir, name);
+  fs.writeFileSync(p, "x");
+  fs.utimesSync(p, mtimeSeconds, mtimeSeconds);
+  return p;
+}
+
+test("selectYtDlpOutput picks the finished file over a longer-named .part leftover", () => {
+  const dir = mkSelectDir();
+  const prefix = "ow-url-1-abc";
+  try {
+    writeAt(dir, `${prefix}.m4a`, 1700000000);
+    writeAt(dir, `${prefix}.m4a.part`, 1700000500);
+    const selected = downloader._selectYtDlpOutput(dir, prefix);
+    assert.equal(selected, path.join(dir, `${prefix}.m4a`));
+    assert.equal(fs.existsSync(selected), true);
+    assert.equal(fs.existsSync(path.join(dir, `${prefix}.m4a.part`)), false);
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("selectYtDlpOutput prefers the finished file over a newer .fNNN intermediate (tier beats mtime)", () => {
+  const dir = mkSelectDir();
+  const prefix = "ow-url-2-abc";
+  try {
+    writeAt(dir, `${prefix}.m4a`, 1700000000);
+    writeAt(dir, `${prefix}.f140.m4a`, 1700000500);
+    const selected = downloader._selectYtDlpOutput(dir, prefix);
+    assert.equal(selected, path.join(dir, `${prefix}.m4a`));
+    assert.equal(fs.existsSync(path.join(dir, `${prefix}.f140.m4a`)), false);
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("selectYtDlpOutput picks the newest of two equal-tier audio files", () => {
+  const dir = mkSelectDir();
+  const prefix = "ow-url-3-abc";
+  try {
+    writeAt(dir, `${prefix}.m4a`, 1700000000);
+    writeAt(dir, `${prefix}.opus`, 1700000500);
+    const selected = downloader._selectYtDlpOutput(dir, prefix);
+    assert.equal(selected, path.join(dir, `${prefix}.opus`));
+    assert.equal(fs.existsSync(path.join(dir, `${prefix}.m4a`)), false);
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("selectYtDlpOutput throws DOWNLOAD_FAILED when only transients remain", () => {
+  const dir = mkSelectDir();
+  const prefix = "ow-url-4-abc";
+  try {
+    writeAt(dir, `${prefix}.m4a.part`, 1700000000);
+    writeAt(dir, `${prefix}.ytdl`, 1700000500);
+    assert.throws(
+      () => downloader._selectYtDlpOutput(dir, prefix),
+      (err) => {
+        assert.equal(err.code, "DOWNLOAD_FAILED");
+        assert.equal(err.message, "Download produced no output");
+        return true;
+      }
+    );
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("selectYtDlpOutput keeps only the selected file and deletes every other prefix match", () => {
+  const dir = mkSelectDir();
+  const prefix = "ow-url-5-abc";
+  try {
+    const others = [
+      `${prefix}.m4a.part`,
+      `${prefix}.temp.m4a`,
+      `${prefix}.f140.m4a.part`,
+      `${prefix}.m4a.ytdl`,
+      `${prefix}.f251.webm`,
+    ];
+    writeAt(dir, `${prefix}.m4a`, 1700000000);
+    for (const name of others) writeAt(dir, name, 1700000500);
+    const selected = downloader._selectYtDlpOutput(dir, prefix);
+    assert.equal(selected, path.join(dir, `${prefix}.m4a`));
+    assert.equal(fs.existsSync(selected), true);
+    for (const name of others) {
+      assert.equal(fs.existsSync(path.join(dir, name)), false, `${name} should have been deleted`);
+    }
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("selectYtDlpOutput excludes a .temp. infix file even when it is newer", () => {
+  const dir = mkSelectDir();
+  const prefix = "ow-url-6-abc";
+  try {
+    writeAt(dir, `${prefix}.temp.m4a`, 1700000500);
+    writeAt(dir, `${prefix}.m4a`, 1700000000);
+    const selected = downloader._selectYtDlpOutput(dir, prefix);
+    assert.equal(selected, path.join(dir, `${prefix}.m4a`));
+    assert.equal(fs.existsSync(path.join(dir, `${prefix}.temp.m4a`)), false);
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("selectYtDlpOutput excludes -Frag fragment files", () => {
+  const dir = mkSelectDir();
+  const prefix = "ow-url-7-abc";
+  try {
+    writeAt(dir, `${prefix}.m4a.part-Frag3`, 1700000500);
+    writeAt(dir, `${prefix}.m4a`, 1700000000);
+    const selected = downloader._selectYtDlpOutput(dir, prefix);
+    assert.equal(selected, path.join(dir, `${prefix}.m4a`));
+    assert.equal(fs.existsSync(path.join(dir, `${prefix}.m4a.part-Frag3`)), false);
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});

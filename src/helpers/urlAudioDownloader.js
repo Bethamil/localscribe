@@ -552,6 +552,52 @@ function cleanupTempArtifacts(tempBase) {
   } catch {}
 }
 
+const YT_DLP_AUDIO_EXTENSIONS = new Set(["m4a", "mp3", "opus", "webm", "ogg", "wav", "aac", "flac"]);
+
+// Select the finished audio file yt-dlp left for `prefix`, delete every other
+// prefix-matched file (transient scratch files included), return its absolute path.
+function selectYtDlpOutput(tempDir, prefix) {
+  const all = fs.readdirSync(tempDir).filter((f) => f.startsWith(prefix));
+
+  let best = null;
+  for (const name of all) {
+    // Match on the lowercased suffix after the prefix so the video id can never
+    // trip an artifact pattern; yt-dlp writes these scratch suffixes lowercase.
+    const rest = name.slice(prefix.length).toLowerCase();
+    const isTransient =
+      /-frag\d+/.test(rest) ||
+      /\.(part|ytdl|aria2|meta)$/.test(rest) ||
+      rest.endsWith(".temp") ||
+      rest.includes(".temp.") ||
+      rest.includes(".orig.");
+    if (isTransient) continue;
+
+    let mtimeMs;
+    try {
+      mtimeMs = fs.statSync(path.join(tempDir, name)).mtimeMs;
+    } catch {
+      continue; // vanished between readdir and stat
+    }
+    const knownAudio = YT_DLP_AUDIO_EXTENSIONS.has(path.extname(name).slice(1).toLowerCase());
+    const tier = knownAudio ? (/\.f\d+\./.test(rest) ? 1 : 0) : 2;
+    if (!best || tier < best.tier || (tier === best.tier && mtimeMs > best.mtimeMs)) {
+      best = { name, tier, mtimeMs };
+    }
+  }
+
+  if (!best) {
+    const err = new Error("Download produced no output");
+    err.code = "DOWNLOAD_FAILED";
+    throw err;
+  }
+
+  for (const f of all) {
+    if (f === best.name) continue;
+    try { fs.unlinkSync(path.join(tempDir, f)); } catch {}
+  }
+  return path.join(tempDir, best.name);
+}
+
 async function downloadYouTube(url, onProgress, abortSignal) {
   seedYtDlpFromBundle();
   const binary = resolveYtDlpBinary();
@@ -678,22 +724,7 @@ async function downloadYouTube(url, onProgress, abortSignal) {
       }
     }
 
-    const tempDir = getSafeTempDir();
-    const prefix = path.basename(tempBase);
-    const files = fs.readdirSync(tempDir)
-      .filter((f) => f.startsWith(prefix))
-      .sort((a, b) => b.length - a.length);
-
-    if (files.length === 0) {
-      const err = new Error("Download produced no output");
-      err.code = "DOWNLOAD_FAILED";
-      throw err;
-    }
-
-    const tempPath = path.join(tempDir, files[0]);
-    for (const f of files.slice(1)) {
-      try { fs.unlinkSync(path.join(tempDir, f)); } catch {}
-    }
+    const tempPath = selectYtDlpOutput(getSafeTempDir(), path.basename(tempBase));
     const sizeBytes = fs.statSync(tempPath).size;
 
     // --max-filesize doesn't enforce for unknown-size streams; re-check after the fact. See T3.
@@ -1100,4 +1131,6 @@ module.exports = {
   _isYtDlpUpdateInFlight: () => ytDlpUpdateInFlight,
   // Test-only seam: injects a fake electron net for downloadViaProxy tests.
   _setElectronNetForTests: (net) => { electronNetOverride = net; },
+  // Test-only seam: exposes yt-dlp output selection to the regression tests.
+  _selectYtDlpOutput: selectYtDlpOutput,
 };
