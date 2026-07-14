@@ -15,7 +15,7 @@ import {
   recordLocalSpeechWindow,
 } from "./localSpeechGate";
 import { reacquireIfDead } from "./micTrackHealth";
-import { resolveMicDeviceSelection } from "./micDeviceSelection";
+import { reconcileSavedMicSelection } from "./micSelectionRecovery";
 import { isStaleDeviceError } from "./staleMicDevice";
 import { shouldSaveDiscardedRecording } from "./discardedRecording";
 import {
@@ -417,43 +417,21 @@ registerProcessor("pcm-streaming-processor", PCMStreamingProcessor);
 
       if (this.validatedSelectedMicDeviceId !== selectedDeviceId) {
         try {
-          const devices = await navigator.mediaDevices.enumerateDevices();
-          const resolvedSelection = resolveMicDeviceSelection(
-            devices,
+          const reconciled = await reconcileSavedMicSelection(
             selectedDeviceId,
-            selectedDeviceLabel
+            selectedDeviceLabel,
+            "audio"
           );
+          resolvedDeviceId = reconciled.deviceId;
 
-          if (resolvedSelection.device) {
-            resolvedDeviceId = resolvedSelection.device.deviceId;
+          if (reconciled.resolved) {
             this.validatedSelectedMicDeviceId = resolvedDeviceId;
-
-            if (
-              resolvedSelection.status === "remapped" ||
-              (!selectedDeviceLabel && resolvedSelection.device.label)
-            ) {
-              getSettings().setSelectedMicDevice(
-                resolvedSelection.device.deviceId,
-                resolvedSelection.device.label
-              );
-              logger.info(
-                resolvedSelection.status === "remapped"
-                  ? "Restored selected microphone after its device ID changed"
-                  : "Saved selected microphone label for future recovery",
-                {
-                  deviceId: resolvedSelection.device.deviceId,
-                  label: resolvedSelection.device.label,
-                },
-                "audio"
-              );
-            }
           } else {
             // Avoid enumerating on every recording while the saved device is
             // unplugged. A devicechange event clears this cache when it returns.
-            const labelsAreAvailable = devices.some(
-              (device) => device.kind === "audioinput" && device.label
-            );
-            this.validatedSelectedMicDeviceId = labelsAreAvailable ? selectedDeviceId : null;
+            this.validatedSelectedMicDeviceId = reconciled.labelsAvailable
+              ? selectedDeviceId
+              : null;
           }
         } catch (error) {
           logger.debug(

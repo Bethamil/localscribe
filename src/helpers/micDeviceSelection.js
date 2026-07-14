@@ -8,6 +8,7 @@ export function resolveMicDeviceSelection(devices, selectedDeviceId, selectedDev
     return { device: null, status: "default" };
   }
 
+  // Callers pass raw MediaDeviceInfo lists or pre-filtered inputs without a kind.
   const audioInputs = devices.filter(
     (device) => device.kind === undefined || device.kind === "audioinput"
   );

@@ -327,7 +327,6 @@ function useSettingsInternal() {
     selectedMicDeviceId: store.selectedMicDeviceId,
     selectedMicDeviceLabel: store.selectedMicDeviceLabel,
     setPreferBuiltInMic: store.setPreferBuiltInMic,
-    setSelectedMicDeviceId: store.setSelectedMicDeviceId,
     setSelectedMicDevice: store.setSelectedMicDevice,
     autoLearnCorrections,
     setAutoLearnCorrections,

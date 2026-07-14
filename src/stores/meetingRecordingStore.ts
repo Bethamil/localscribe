@@ -2,7 +2,7 @@ import { create } from "zustand";
 import { getSettings, selectResolvedMeetingTranscription } from "./settingsStore";
 import { useStreamingProvidersStore } from "./streamingProvidersStore";
 import { isBuiltInMicrophone } from "../utils/audioDeviceUtils";
-import { resolveMicDeviceSelection } from "../helpers/micDeviceSelection";
+import { reconcileSavedMicSelection } from "../helpers/micSelectionRecovery";
 import { getBaseLanguageCode } from "../utils/languageSupport";
 import type { SystemAudioAccessResult, SystemAudioStrategy } from "../types/electron";
 import {
@@ -326,35 +326,12 @@ const getMeetingMicConstraints = async (): Promise<MediaStreamConstraints> => {
     let resolvedDeviceId = selectedMicDeviceId;
 
     try {
-      const devices = await navigator.mediaDevices.enumerateDevices();
-      const resolvedSelection = resolveMicDeviceSelection(
-        devices,
+      const reconciled = await reconcileSavedMicSelection(
         selectedMicDeviceId,
-        selectedMicDeviceLabel
+        selectedMicDeviceLabel,
+        "meeting"
       );
-
-      if (resolvedSelection.device) {
-        resolvedDeviceId = resolvedSelection.device.deviceId;
-        if (
-          resolvedSelection.status === "remapped" ||
-          (!selectedMicDeviceLabel && resolvedSelection.device.label)
-        ) {
-          getSettings().setSelectedMicDevice(
-            resolvedSelection.device.deviceId,
-            resolvedSelection.device.label
-          );
-          logger.info(
-            resolvedSelection.status === "remapped"
-              ? "Restored selected meeting microphone after its device ID changed"
-              : "Saved selected meeting microphone label for future recovery",
-            {
-              deviceId: resolvedSelection.device.deviceId,
-              label: resolvedSelection.device.label,
-            },
-            "meeting"
-          );
-        }
-      }
+      resolvedDeviceId = reconciled.deviceId;
     } catch (err) {
       logger.debug(
         "Failed to reconcile selected microphone for meeting transcription",

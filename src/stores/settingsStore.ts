@@ -623,7 +623,6 @@ export interface SettingsState
   setActivationMode: (mode: "tap" | "push") => void;
 
   setPreferBuiltInMic: (value: boolean) => void;
-  setSelectedMicDeviceId: (value: string) => void;
   setSelectedMicDevice: (deviceId: string, label: string) => void;
 
   setTheme: (value: "light" | "dark" | "auto") => void;
@@ -704,8 +703,7 @@ function createRegisteredHotkeySetter(
   key: "chatAgentKey" | "voiceAgentKey",
   label: string,
   getRegisterFn: () =>
-    | ((hotkey: string) => Promise<{ success: boolean; message: string }>)
-    | undefined,
+    ((hotkey: string) => Promise<{ success: boolean; message: string }>) | undefined,
   fallbackSave?: (hotkey: string) => void
 ) {
   return async (hotkey: string): Promise<boolean> => {
@@ -793,8 +791,7 @@ function debouncedSaveSecret(provider: SecretProvider, key: string) {
   secretSaveTimers[provider] = setTimeout(() => {
     const api = window.electronAPI;
     const save = api?.[SECRET_IPC_SAVERS[provider]] as
-      | ((k: string) => Promise<unknown>)
-      | undefined;
+      ((k: string) => Promise<unknown>) | undefined;
     save?.(key)?.catch((err) => {
       logger.warn(
         "Failed to persist secret",
@@ -953,8 +950,7 @@ export const useSettingsStore = create<SettingsState>()((set, get) => ({
     ? "side-panel"
     : "full-width") as "side-panel" | "full-width",
   activationMode: (readString("activationMode", "tap") === "push" ? "push" : "tap") as
-    | "tap"
-    | "push",
+    "tap" | "push",
 
   preferBuiltInMic: readBoolean("preferBuiltInMic", true),
   selectedMicDeviceId: readString("selectedMicDeviceId", ""),
@@ -1474,13 +1470,6 @@ export const useSettingsStore = create<SettingsState>()((set, get) => ({
   },
 
   setPreferBuiltInMic: createBooleanSetter("preferBuiltInMic"),
-  setSelectedMicDeviceId: (deviceId: string) => {
-    if (isBrowser) {
-      localStorage.setItem("selectedMicDeviceLabel", "");
-      localStorage.setItem("selectedMicDeviceId", deviceId);
-    }
-    set({ selectedMicDeviceId: deviceId, selectedMicDeviceLabel: "" });
-  },
   setSelectedMicDevice: (deviceId: string, label: string) => {
     if (isBrowser) {
       localStorage.setItem("selectedMicDeviceLabel", label);
