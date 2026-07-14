@@ -3,6 +3,7 @@ const path = require("path");
 const fs = require("fs");
 const { randomUUID } = require("crypto");
 const debugLogger = require("./debugLogger");
+const { buildNoteSearchQuery } = require("./noteSearch");
 const { app } = require("electron");
 
 // Server-enforced trigger cap (openwhispr-api); enforced here so one oversized
@@ -2112,11 +2113,8 @@ class DatabaseManager {
   searchNotes(query, limit = 50) {
     try {
       if (!this.db) throw new Error("Database not initialized");
-      const term = query
-        .trim()
-        .replace(/[^\w\s]/g, " ")
-        .trim();
-      if (!term) return [];
+      const ftsQuery = buildNoteSearchQuery(query);
+      if (!ftsQuery) return [];
       return this.db
         .prepare(
           `
@@ -2128,7 +2126,7 @@ class DatabaseManager {
         LIMIT ?
       `
         )
-        .all(term + "*", limit);
+        .all(ftsQuery, limit);
     } catch (error) {
       debugLogger.error("Error searching notes", { error: error.message }, "database");
       throw error;

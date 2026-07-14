@@ -29,6 +29,9 @@ export interface FileTranscriptionConfig {
   language: string;
   cortiEnvironment?: string;
   cortiTenant?: string;
+  transcriptionMode?: string;
+  remoteTranscriptionUrl?: string;
+  remoteTranscriptionModel?: string;
 }
 
 // Single provider dispatch shared by the single-file flow and the batch queue,
@@ -57,6 +60,8 @@ export async function transcribeFile(
     });
   }
 
+  // Self-hosted fields make the handler route to the configured server
+  // (fail-closed on misconfiguration) instead of stale BYOK settings.
   return window.electronAPI.transcribeAudioFileByok!({
     filePath,
     apiKey: cfg.getApiKey(),
@@ -67,6 +72,9 @@ export async function transcribeFile(
     language: cfg.language,
     environment: cfg.cortiEnvironment,
     tenant: cfg.cortiTenant,
+    transcriptionMode: cfg.transcriptionMode,
+    remoteTranscriptionUrl: cfg.remoteTranscriptionUrl,
+    remoteTranscriptionModel: cfg.remoteTranscriptionModel,
   });
 }
 
