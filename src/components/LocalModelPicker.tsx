@@ -106,9 +106,9 @@ export default function LocalModelPicker({
     initAndValidate();
   }, [loadDownloadedModels, selectedModel, onModelSelect]);
 
-  const handleDownloadComplete = useCallback(() => {
-    loadDownloadedModels();
-    onDownloadComplete?.();
+  const handleDownloadComplete = useCallback(async () => {
+    await loadDownloadedModels();
+    await onDownloadComplete?.();
   }, [loadDownloadedModels, onDownloadComplete]);
 
   const {

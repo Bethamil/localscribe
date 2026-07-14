@@ -102,29 +102,37 @@ class ModelManager {
   async getAllModels() {
     this.ensureInitialized();
     try {
-      const models = [];
+      const modelEntries = [];
 
       for (const provider of getLocalProviders()) {
         for (const model of provider.models) {
           const modelPath = path.join(this.modelsDir, model.fileName);
-          const isDownloaded = await this.checkModelValid(modelPath);
-          const progress = this.downloadProgress.get(model.id);
-
-          models.push({
-            ...model,
-            providerId: provider.id,
-            providerName: provider.name,
-            isDownloaded,
-            isDownloading: this.activeDownloads.has(model.id),
-            downloadProgress: progress?.progress || 0,
-            downloadedSize: progress?.downloadedSize || 0,
-            totalSize: progress?.totalSize || 0,
-            path: isDownloaded ? modelPath : null,
-          });
+          modelEntries.push({ model, provider, modelPath });
         }
       }
 
-      return models;
+      const downloadedStates = await Promise.all(
+        modelEntries.map(({ modelPath }) => this.checkModelValid(modelPath))
+      );
+
+      // Read volatile download state only after all asynchronous filesystem checks
+      // finish so every model belongs to the same main-process snapshot.
+      return modelEntries.map(({ model, provider, modelPath }, index) => {
+        const progress = this.downloadProgress.get(model.id);
+        const isDownloaded = downloadedStates[index];
+
+        return {
+          ...model,
+          providerId: provider.id,
+          providerName: provider.name,
+          isDownloaded,
+          isDownloading: this.activeDownloads.has(model.id),
+          downloadProgress: progress?.progress || 0,
+          downloadedSize: progress?.downloadedSize || 0,
+          totalSize: progress?.totalSize || 0,
+          path: isDownloaded ? modelPath : null,
+        };
+      });
     } catch (error) {
       console.error("[ModelManager] Error getting all models:", error);
       throw error;
@@ -186,9 +194,11 @@ class ModelManager {
       return modelPath;
     }
 
-    if (this.activeDownloads.get(modelId)) {
-      throw new ModelError("Model is already being downloaded", "DOWNLOAD_IN_PROGRESS", {
+    if (this.activeDownloads.size > 0) {
+      const activeModelId = this.activeDownloads.keys().next().value;
+      throw new ModelError("A model is already being downloaded", "DOWNLOAD_IN_PROGRESS", {
         modelId,
+        activeModelId,
       });
     }
 
