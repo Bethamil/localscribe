@@ -317,9 +317,8 @@ const TRANSCRIPTION_SCOPE_KEYS = {
   },
 } as const;
 
-// Seed each scope's per-provider config memory from the flat scalars so the
-// currently configured provider keeps its model/URL after the switch to
-// non-destructive provider switching.
+// Seed per-provider config memory from the flat scalars so the currently
+// configured provider keeps its model/URL.
 function migrateTranscriptionProviderConfigs() {
   if (!isBrowser) return;
   if (localStorage.getItem("_transcriptionProviderConfigsMigrated") === "1") return;
@@ -2014,9 +2013,7 @@ export const selectResolvedLLMConfig = (
   };
 };
 
-// Non-destructive provider switch: the outgoing provider's model/baseUrl are
-// remembered per scope and the incoming provider's remembered values restored,
-// so configuring one provider never overwrites another's settings.
+// Non-destructive provider switch (see transcriptionProviderConfig.js).
 export function switchTranscriptionProvider(
   scope: TranscriptionProviderScope,
   providerId: string

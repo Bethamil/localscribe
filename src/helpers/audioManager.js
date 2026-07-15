@@ -1804,8 +1804,7 @@ registerProcessor("pcm-streaming-processor", PCMStreamingProcessor);
         formData.append("language", language);
       }
 
-      // Raw dictionary prompt; the mistral proxy branch re-tokenizes it, the
-      // http-batch path (below the proxy branches) truncates and appends it.
+      // Untruncated here: the mistral proxy re-tokenizes it, the http-batch path truncates it.
       let dictionaryPrompt = this.getCustomDictionaryPrompt();
 
       const apiCallStart = performance.now();
@@ -1922,13 +1921,17 @@ registerProcessor("pcm-streaming-processor", PCMStreamingProcessor);
         throw new Error("No text transcribed - Corti response was empty");
       }
 
-      // Only the direct-HTTP providers reach here; resolving the endpoint now
-      // avoids throwing for the proxied providers dispatched above.
+      // Resolved after the proxy dispatch — the resolver throws for proxied transports.
       const endpoint = this.getTranscriptionEndpoint();
+
+      let endpointHost = "";
+      try {
+        endpointHost = new URL(endpoint).hostname;
+      } catch {}
 
       // Groq rejects prompts > 896 chars (incl. when reached via "custom" provider).
       // 890 leaves margin for UTF-16 vs codepoint counting drift.
-      const isGroqEndpoint = provider === "groq" || endpoint.includes("api.groq.com");
+      const isGroqEndpoint = provider === "groq" || endpointHost === "api.groq.com";
       const MAX_PROMPT_CHARS = isGroqEndpoint ? 890 : 900;
       if (dictionaryPrompt) {
         if (dictionaryPrompt.length > MAX_PROMPT_CHARS) {
@@ -1954,12 +1957,7 @@ registerProcessor("pcm-streaming-processor", PCMStreamingProcessor);
         formData.append("stream", "true");
       }
 
-      const isCustomEndpoint =
-        provider === "custom" ||
-        (!endpoint.includes("api.openai.com") &&
-          !endpoint.includes("api.groq.com") &&
-          !endpoint.includes("api.x.ai") &&
-          !endpoint.includes("api.mistral.ai"));
+      const isCustomEndpoint = provider === "custom" || isSelfHostedTranscription(apiSettings);
 
       logger.debug(
         "Making transcription API request",
@@ -2105,7 +2103,6 @@ registerProcessor("pcm-streaming-processor", PCMStreamingProcessor);
         const text = await this.processTranscription(result.text, "openai");
         timings.reasoningProcessingDurationMs = Math.round(performance.now() - reasoningStart);
 
-        // Report the real provider (self-hosted/custom/groq), not a hardcoded "openai".
         const label = isSelfHostedTranscription(apiSettings) ? "self-hosted" : provider;
         const source = (await this.isReasoningAvailable()) ? `${label}-reasoned` : label;
         logger.debug(
