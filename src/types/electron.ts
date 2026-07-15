@@ -1865,9 +1865,6 @@ declare global {
       onDictationRealtimeSessionEnd?: (callback: (data: { text: string }) => void) => () => void;
 
       // Google Calendar event listeners
-      onGcalMeetingStarting?: (callback: (data: any) => void) => () => void;
-      onGcalMeetingEnded?: (callback: (data: any) => void) => () => void;
-      onGcalStartRecording?: (callback: (data: any) => void) => () => void;
       onGcalConnectionChanged?: (callback: (data: any) => void) => () => void;
       onGcalEventsSynced?: (callback: (data: any) => void) => () => void;
 
@@ -1911,8 +1908,6 @@ declare global {
         speechPadMs?: number;
         samplesOverlap?: number;
       }) => Promise<{ success: boolean; config?: Record<string, unknown>; error?: string }>;
-      onMeetingDetected?: (callback: (data: any) => void) => () => void;
-      onMeetingDetectedStartRecording?: (callback: (data: any) => void) => () => void;
       onMeetingNotificationData?: (callback: (data: any) => void) => () => void;
       getMeetingNotificationData?: () => Promise<any>;
       meetingNotificationReady?: () => Promise<void>;
