@@ -8,6 +8,7 @@ interface LocalReasoningConfig {
   maxTokens?: number;
   temperature?: number;
   contextSize?: number;
+  requireCompleteOutput?: boolean;
 }
 
 class LocalReasoningService extends BaseReasoningService {
@@ -55,6 +56,7 @@ class LocalReasoningService extends BaseReasoningService {
         maxTokens,
         temperature: config.temperature || inferenceOptions.temperature,
         contextSize: config.contextSize || TOKEN_LIMITS.REASONING_CONTEXT_SIZE,
+        requireCompleteOutput: config.requireCompleteOutput,
       });
 
       // Run inference

@@ -38,6 +38,13 @@ import { syncService } from "../services/SyncService.js";
 import { evaluateFinishedRecording } from "./recordingValidation";
 import { matchesDictionaryPrompt } from "../utils/dictionaryEchoFilter.js";
 import { getDictionaryHintWords } from "../utils/snippets";
+import {
+  buildSelectionEditSystemPrompt,
+  buildSelectionEditUserPrompt,
+  extractSelectionEditReplacement,
+  getSelectionCaptureDisposition,
+} from "./selectionEditing";
+import { isAccessibilitySkipped } from "../utils/permissions";
 
 const REASONING_CACHE_TTL = 30000; // 30 seconds
 const RECORDING_TIMESLICE_MS = 250; // flush chunks periodically so short recordings still carry audio frames. See #871.
@@ -244,6 +251,7 @@ class AudioManager {
     this.streamingFallbackChunks = [];
     this.skipReasoning = false;
     this.voiceAgentRequested = false;
+    this.pendingSelectionEdit = null;
     this.context = "dictation";
     this.sttConfig = null;
     this.lastAudioBlob = null;
@@ -324,6 +332,7 @@ registerProcessor("pcm-streaming-processor", PCMStreamingProcessor);
 
   setVoiceAgentRequested(requested) {
     this.voiceAgentRequested = requested;
+    this.pendingSelectionEdit = null;
   }
 
   setContext(context) {
@@ -748,6 +757,7 @@ registerProcessor("pcm-streaming-processor", PCMStreamingProcessor);
   cancelProcessing() {
     if (this.isProcessing) {
       this.isProcessing = false;
+      this.pendingSelectionEdit = null;
       this.onStateChange?.({ isRecording: false, isProcessing: false });
       return true;
     }
@@ -840,6 +850,10 @@ registerProcessor("pcm-streaming-processor", PCMStreamingProcessor);
         model: activeModel || null,
       };
 
+      if (this.pendingSelectionEdit) {
+        result = { ...result, selectionEdit: this.pendingSelectionEdit };
+        this.pendingSelectionEdit = null;
+      }
       this.onTranscriptionComplete?.(result);
 
       if (result?.source === "openwhispr") {
@@ -882,8 +896,10 @@ registerProcessor("pcm-streaming-processor", PCMStreamingProcessor);
 
       if (error.message !== "No audio detected") {
         this.onError?.({
-          title: "Transcription Error",
-          description: `Transcription failed: ${error.message}`,
+          title: error.selectionEditFatal ? "Selection Edit Failed" : "Transcription Error",
+          description: error.selectionEditFatal
+            ? error.message
+            : `Transcription failed: ${error.message}`,
           code: error.code,
           messageKey: error.messageKey,
         });
@@ -964,6 +980,9 @@ registerProcessor("pcm-streaming-processor", PCMStreamingProcessor);
         throw new Error(result.message || result.error || "Local Whisper transcription failed");
       }
     } catch (error) {
+      if (error.selectionEditFatal) {
+        throw error;
+      }
       if (error.message === "No audio detected") {
         throw error;
       }
@@ -975,6 +994,9 @@ registerProcessor("pcm-streaming-processor", PCMStreamingProcessor);
           const fallbackResult = await this.processWithOpenAIAPI(audioBlob, metadata);
           return { ...fallbackResult, source: "openai-fallback" };
         } catch (fallbackError) {
+          if (fallbackError.selectionEditFatal) {
+            throw fallbackError;
+          }
           throw new Error(
             `Local Whisper failed: ${error.message}. OpenAI fallback also failed: ${fallbackError.message}`
           );
@@ -1039,6 +1061,9 @@ registerProcessor("pcm-streaming-processor", PCMStreamingProcessor);
         throw new Error(result.message || result.error || "Parakeet transcription failed");
       }
     } catch (error) {
+      if (error.selectionEditFatal) {
+        throw error;
+      }
       if (error.message === "No audio detected") {
         throw error;
       }
@@ -1050,6 +1075,9 @@ registerProcessor("pcm-streaming-processor", PCMStreamingProcessor);
           const fallbackResult = await this.processWithOpenAIAPI(audioBlob, metadata);
           return { ...fallbackResult, source: "openai-fallback" };
         } catch (fallbackError) {
+          if (fallbackError.selectionEditFatal) {
+            throw fallbackError;
+          }
           throw new Error(
             `Parakeet failed: ${error.message}. OpenAI fallback also failed: ${fallbackError.message}`
           );
@@ -1233,6 +1261,92 @@ registerProcessor("pcm-streaming-processor", PCMStreamingProcessor);
     }
   }
 
+  async processAgentCommand(text, model, agentName, config) {
+    let capture;
+    try {
+      capture = await window.electronAPI?.captureSelectedText?.();
+    } catch (cause) {
+      const error = new Error(`Selection edit could not safely read the selection: ${cause.message}`);
+      error.code = "SELECTION_EDIT_CAPTURE_FAILED";
+      error.messageKey = "hooks.audioRecording.selectionEditing.unavailable";
+      error.selectionEditFatal = true;
+      error.cause = cause;
+      throw error;
+    }
+
+    if (capture?.status === "too_large") {
+      // A large selection definitely exists, so running the command as plain
+      // agent dictation would paste over it — the one capture failure that
+      // must not fall through.
+      const error = new Error(
+        `Selected text exceeds the ${capture.maxCharacters || 6000} character limit`
+      );
+      error.code = "SELECTION_EDIT_TOO_LARGE";
+      error.messageKey = "hooks.audioRecording.selectionEditing.tooLarge";
+      error.selectionEditFatal = true;
+      throw error;
+    }
+
+    const captureDisposition = getSelectionCaptureDisposition(
+      capture,
+      isAccessibilitySkipped()
+    );
+
+    if (captureDisposition === "standalone") {
+      // No selection, or selection capture is unavailable by design (for
+      // example, the user explicitly skipped macOS Accessibility): preserve
+      // the existing Voice Agent behavior and type at the cursor.
+      return this.processWithReasoningModel(text, model, agentName, config);
+    }
+
+    if (capture?.status !== "selected") {
+      // A captured target changing, a synthetic-copy failure, or an unexpected
+      // accessibility result is ambiguous: a normal agent paste could overwrite
+      // unrelated selected text. Abort instead of falling through.
+      const error = new Error("Selection edit could not safely verify the selected text");
+      error.code = "SELECTION_EDIT_CAPTURE_FAILED";
+      error.messageKey =
+        captureDisposition === "changed"
+          ? "hooks.audioRecording.selectionEditing.changed"
+          : "hooks.audioRecording.selectionEditing.unavailable";
+      error.selectionEditFatal = true;
+      throw error;
+    }
+
+    const selectionConfig = {
+      ...config,
+      maxTokens: Math.max(config?.maxTokens || 0, 8192),
+      contextSize: Math.max(config?.contextSize || 0, 16384),
+      temperature: config?.temperature ?? 0.2,
+      requireCompleteOutput: true,
+    };
+    const completionMarker = `__OPENWHISPR_SELECTION_COMPLETE_${crypto.randomUUID()}__`;
+    selectionConfig.systemPrompt = buildSelectionEditSystemPrompt(
+      config?.systemPrompt,
+      completionMarker
+    );
+    const userPrompt = buildSelectionEditUserPrompt(text, capture.text);
+
+    try {
+      const result = await this.processWithReasoningModel(
+        userPrompt,
+        model,
+        agentName,
+        selectionConfig
+      );
+      const replacement = extractSelectionEditReplacement(result, completionMarker);
+      this.pendingSelectionEdit = { sessionId: capture.sessionId };
+      return replacement;
+    } catch (cause) {
+      const error = new Error(`Selection edit failed: ${cause.message}`);
+      error.code = "SELECTION_EDIT_REASONING_FAILED";
+      error.messageKey = "hooks.audioRecording.selectionEditing.reasoningFailed";
+      error.selectionEditFatal = true;
+      error.cause = cause;
+      throw error;
+    }
+  }
+
   async isReasoningAvailable() {
     if (typeof window === "undefined") {
       return false;
@@ -1376,12 +1490,20 @@ registerProcessor("pcm-streaming-processor", PCMStreamingProcessor);
           disableThinking: reasoningConfig?.disableThinking,
         });
 
-        const result = await this.processWithReasoningModel(
-          normalizedText,
-          targetModel,
-          agentName,
-          reasoningConfig
-        );
+        const result =
+          route.kind === "agent"
+            ? await this.processAgentCommand(
+                normalizedText,
+                targetModel,
+                agentName,
+                reasoningConfig
+              )
+            : await this.processWithReasoningModel(
+                normalizedText,
+                targetModel,
+                agentName,
+                reasoningConfig
+              );
 
         logger.logReasoning("REASONING_SUCCESS", {
           resultLength: result.length,
@@ -1391,6 +1513,7 @@ registerProcessor("pcm-streaming-processor", PCMStreamingProcessor);
 
         return result;
       } catch (error) {
+        if (error.selectionEditFatal) throw error;
         logger.logReasoning("REASONING_FAILED", {
           error: error.message,
           stack: error.stack,
@@ -1618,7 +1741,7 @@ registerProcessor("pcm-streaming-processor", PCMStreamingProcessor);
 
       try {
         if (route.kind === "agent") {
-          const reasoned = await this.processWithReasoningModel(
+          const reasoned = await this.processAgentCommand(
             processedText,
             route.model,
             agentName,
@@ -1667,6 +1790,7 @@ registerProcessor("pcm-streaming-processor", PCMStreamingProcessor);
           }
         }
       } catch (reasonError) {
+        if (reasonError.selectionEditFatal) throw reasonError;
         logger.error(
           "Cloud reasoning failed, using raw transcription",
           { error: reasonError.message },
@@ -2125,6 +2249,9 @@ registerProcessor("pcm-streaming-processor", PCMStreamingProcessor);
         );
       }
     } catch (error) {
+      if (error.selectionEditFatal) {
+        throw error;
+      }
       if (error.message === "No audio detected") {
         throw error;
       }
@@ -2149,6 +2276,9 @@ registerProcessor("pcm-streaming-processor", PCMStreamingProcessor);
           }
           throw error;
         } catch (fallbackError) {
+          if (fallbackError.selectionEditFatal) {
+            throw fallbackError;
+          }
           throw new Error(
             `OpenAI API failed: ${error.message}. Local fallback also failed: ${fallbackError.message}`
           );
@@ -3086,6 +3216,10 @@ registerProcessor("pcm-streaming-processor", PCMStreamingProcessor);
     const streamingAudioBytesSent = stopResult?.audioBytesSent || 0;
     const streamingSttLanguage = getBaseLanguageCode(stSettings.preferredLanguage) || undefined;
     const streamingSttWordCount = finalText ? finalText.split(/\s+/).filter(Boolean).length : 0;
+    // Reasoning below reassigns `finalText` to the cleaned-up/agent output, so
+    // snapshot the pre-reasoning transcript now to report as `rawText` — matching
+    // the batch path, which already keeps raw and processed text separate.
+    const rawStreamingText = finalText;
 
     let usedCloudReasoning = false;
     if (finalText && !this.skipReasoning) {
@@ -3101,7 +3235,7 @@ registerProcessor("pcm-streaming-processor", PCMStreamingProcessor);
 
       try {
         if (route.kind === "agent") {
-          const reasoned = await this.processWithReasoningModel(
+          const reasoned = await this.processAgentCommand(
             finalText,
             route.model,
             agentName,
@@ -3170,6 +3304,18 @@ registerProcessor("pcm-streaming-processor", PCMStreamingProcessor);
           }
         }
       } catch (reasonError) {
+        if (reasonError.selectionEditFatal) {
+          this.pendingSelectionEdit = null;
+          this.onError?.({
+            title: "Selection Edit Failed",
+            description: reasonError.message,
+            code: reasonError.code,
+            messageKey: reasonError.messageKey,
+          });
+          this.isProcessing = false;
+          this.onStateChange?.({ isRecording: false, isProcessing: false, isStreaming: false });
+          return false;
+        }
         logger.error(
           "Streaming reasoning failed, using raw text",
           { error: reasonError.message },
@@ -3227,10 +3373,12 @@ registerProcessor("pcm-streaming-processor", PCMStreamingProcessor);
       this.onTranscriptionComplete?.({
         success: true,
         text: finalText,
-        rawText: finalText,
+        rawText: rawStreamingText || finalText,
         source: `${this.getStreamingProviderName()}-streaming`,
+        ...(this.pendingSelectionEdit ? { selectionEdit: this.pendingSelectionEdit } : {}),
         ...(batchWarning ? { warning: batchWarning } : {}),
       });
+      this.pendingSelectionEdit = null;
 
       if (!usedBatchFallback) {
         (async () => {

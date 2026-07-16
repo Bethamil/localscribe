@@ -453,6 +453,13 @@ class WindowManager {
       return;
     }
     if (this.mainWindow && !this.mainWindow.isDestroyed()) {
+      // Capture the paste target and any selection on the leading (start) edge,
+      // before the overlay steals focus — the paste can't refocus the target
+      // otherwise (#668). Covers both dictation and voice-agent toggle paths.
+      if (!this._isDictatingToggle) {
+        if (this.textEditMonitor) this.textEditMonitor.captureTargetPid();
+        void this.selectionManager?.captureTarget?.();
+      }
       this.showDictationPanel();
       this.mainWindow.webContents.send(channel);
       this._isDictatingToggle = !this._isDictatingToggle;
@@ -465,10 +472,6 @@ class WindowManager {
   }
 
   sendToggleVoiceAgent() {
-    // The voice-agent hotkeys, unlike the dictation paths, don't capture the
-    // target PID at their call sites, so capture here or the paste can't
-    // refocus the target (#668).
-    if (this.textEditMonitor) this.textEditMonitor.captureTargetPid();
     this._sendDictationToggle("toggle-voice-agent");
   }
 
@@ -477,6 +480,8 @@ class WindowManager {
       return;
     }
     if (this.mainWindow && !this.mainWindow.isDestroyed()) {
+      if (this.textEditMonitor) this.textEditMonitor.captureTargetPid();
+      void this.selectionManager?.captureTarget?.();
       this.showDictationPanel();
       this.mainWindow.webContents.send("start-dictation");
       this.meetingDetectionEngine?.setUserRecording(true);

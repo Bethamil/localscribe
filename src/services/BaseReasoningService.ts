@@ -12,6 +12,7 @@ export interface ReasoningConfig {
   customApiKey?: string;
   provider?: string;
   disableThinking?: boolean;
+  requireCompleteOutput?: boolean;
 }
 
 export abstract class BaseReasoningService {
