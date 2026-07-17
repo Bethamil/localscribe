@@ -30,6 +30,8 @@ import { shouldSkipTranscriptionApiKey } from "./transcriptionAuth";
 import { buildOpenAiTranscriptionUrl } from "./openAiCompatibleTranscription";
 import {
   isSelfHostedTranscription,
+  resolveDictationTranscriptionTarget,
+  resolveSelfHostedTranscriptionApiKey,
   resolveSelfHostedTranscriptionModel,
 } from "./selfHostedTranscription";
 import { resolveStreamingFallbackTarget } from "./transcriptionFallback";
@@ -962,11 +964,18 @@ registerProcessor("pcm-streaming-processor", PCMStreamingProcessor);
       const cloudTranscriptionMode = settings.cloudTranscriptionMode;
       const isSignedIn = settings.isSignedIn;
 
-      const isLocalScribeCloudMode = !useLocalWhisper && cloudTranscriptionMode === "openwhispr";
+      const transcriptionTarget = resolveDictationTranscriptionTarget(settings);
+      const isLocalScribeCloudMode = transcriptionTarget === "cloud";
       const useCloud = isLocalScribeCloudMode && isSignedIn;
       logger.debug(
         "Transcription routing",
-        { useLocalWhisper, useCloud, isSignedIn, cloudTranscriptionMode },
+        {
+          transcriptionTarget,
+          useLocalWhisper,
+          useCloud,
+          isSignedIn,
+          cloudTranscriptionMode,
+        },
         "transcription"
       );
 
@@ -1231,7 +1240,7 @@ registerProcessor("pcm-streaming-processor", PCMStreamingProcessor);
   async getAPIKey() {
     const s = getSettings();
     if (shouldSkipTranscriptionApiKey(s)) {
-      return null;
+      return resolveSelfHostedTranscriptionApiKey(s);
     }
 
     const provider = s.cloudTranscriptionProvider || "openai";
@@ -2023,7 +2032,9 @@ registerProcessor("pcm-streaming-processor", PCMStreamingProcessor);
     try {
       const durationSeconds = metadata.durationSeconds ?? null;
       const model = this.getTranscriptionModel();
-      const provider = apiSettings.cloudTranscriptionProvider || "openai";
+      const provider = isSelfHostedTranscription(apiSettings)
+        ? "custom"
+        : apiSettings.cloudTranscriptionProvider || "openai";
 
       logger.debug(
         "Transcription request starting",

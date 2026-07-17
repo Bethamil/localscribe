@@ -8,6 +8,21 @@ export function isSelfHostedTranscription(settings) {
   return mode === "self-hosted" && remoteUrl.length > 0;
 }
 
+export function resolveDictationTranscriptionTarget(settings) {
+  if (settings?.useLocalWhisper) return "local";
+  if (isSelfHostedTranscription(settings)) return "self-hosted";
+  return settings?.cloudTranscriptionMode === "openwhispr" ? "cloud" : "provider";
+}
+
+export function resolveSelfHostedTranscriptionApiKey(settings) {
+  if (!isSelfHostedTranscription(settings)) return null;
+  const apiKey =
+    typeof settings?.remoteTranscriptionApiKey === "string"
+      ? settings.remoteTranscriptionApiKey.trim()
+      : "";
+  return apiKey || null;
+}
+
 export function resolveSelfHostedTranscriptionModel(settings) {
   if (!isSelfHostedTranscription(settings)) return null;
   const model =

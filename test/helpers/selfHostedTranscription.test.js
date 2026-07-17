@@ -50,6 +50,50 @@ test("isSelfHostedTranscription returns false for empty settings object", async 
   assert.equal(isSelfHostedTranscription({}), false);
 });
 
+test("self-hosted dictation wins over stale cloud routing state", async () => {
+  const { resolveDictationTranscriptionTarget } = await import(
+    "../../src/helpers/selfHostedTranscription.js"
+  );
+  assert.equal(
+    resolveDictationTranscriptionTarget({
+      useLocalWhisper: false,
+      transcriptionMode: "self-hosted",
+      remoteTranscriptionUrl: "https://example.test/v1",
+      cloudTranscriptionMode: "openwhispr",
+      isSignedIn: false,
+    }),
+    "self-hosted"
+  );
+});
+
+test("self-hosted dictation uses its optional Bearer credential", async () => {
+  const { resolveSelfHostedTranscriptionApiKey } = await import(
+    "../../src/helpers/selfHostedTranscription.js"
+  );
+  assert.equal(
+    resolveSelfHostedTranscriptionApiKey({
+      transcriptionMode: "self-hosted",
+      remoteTranscriptionUrl: "https://example.test/v1",
+      remoteTranscriptionApiKey: "  secret-token  ",
+    }),
+    "secret-token"
+  );
+});
+
+test("self-hosted dictation keeps authentication optional", async () => {
+  const { resolveSelfHostedTranscriptionApiKey } = await import(
+    "../../src/helpers/selfHostedTranscription.js"
+  );
+  assert.equal(
+    resolveSelfHostedTranscriptionApiKey({
+      transcriptionMode: "self-hosted",
+      remoteTranscriptionUrl: "https://example.test/v1",
+      remoteTranscriptionApiKey: "   ",
+    }),
+    null
+  );
+});
+
 test("resolveSelfHostedTranscriptionModel returns the trimmed model", async () => {
   const { resolveSelfHostedTranscriptionModel } = await import(
     "../../src/helpers/selfHostedTranscription.js"
