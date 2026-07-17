@@ -41,6 +41,8 @@ const {
 const { downsample24kTo16k, pcm16ToWav } = require("../utils/audioUtils");
 const {
   analyzePcm16,
+  buildBearerHeaders,
+  buildOpenAiTranscriptionUrl,
   isBatchMeetingProvider,
   transcribeOpenAiCompatibleWav,
 } = require("./openAiCompatibleTranscription");
@@ -7394,7 +7396,12 @@ class IPCHandlers {
               AUDIO_MIME_TYPES[ext] || "audio/mpeg",
               { model: selfHostedRoute.model, language }
             );
-            const data = await postMultipart(new URL(selfHostedRoute.endpoint), body, boundary);
+            const data = await postMultipart(
+              new URL(selfHostedRoute.endpoint),
+              body,
+              boundary,
+              buildBearerHeaders(apiKey)
+            );
             if (data.statusCode !== 200) {
               throw new Error(
                 data.data?.error?.message ||
@@ -7463,10 +7470,7 @@ class IPCHandlers {
               multipartFields.format = "true";
             }
           } else {
-            transcriptionUrl = baseUrl.replace(/\/+$/, "");
-            if (!transcriptionUrl.endsWith("/audio/transcriptions")) {
-              transcriptionUrl += "/audio/transcriptions";
-            }
+            transcriptionUrl = buildOpenAiTranscriptionUrl(baseUrl);
             multipartFields.model = model || "whisper-1";
           }
 

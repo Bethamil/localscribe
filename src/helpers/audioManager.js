@@ -27,6 +27,7 @@ import {
 } from "../stores/settingsStore";
 import { getBatchTranscriptionModel, getTranscriptionProvider } from "../models/ModelRegistry";
 import { shouldSkipTranscriptionApiKey } from "./transcriptionAuth";
+import { buildOpenAiTranscriptionUrl } from "./openAiCompatibleTranscription";
 import {
   isSelfHostedTranscription,
   resolveSelfHostedTranscriptionModel,
@@ -2665,16 +2666,20 @@ registerProcessor("pcm-streaming-processor", PCMStreamingProcessor);
             "transcription"
           );
         } else {
-          endpoint = buildApiUrl(normalizedBase, "/audio/transcriptions");
+          endpoint = buildOpenAiTranscriptionUrl(normalizedBase);
           logger.warn(
             "STT endpoint: Azure host detected but no deployment name; falling back to default path",
             { base: normalizedBase, endpoint },
             "transcription"
           );
         }
-      } else if (/\/audio\/(transcriptions|translations)$/i.test(normalizedBase)) {
-        endpoint = normalizedBase;
-        logger.debug("STT endpoint: using full path from config", { endpoint }, "transcription");
+      } else if (isCustomEndpoint) {
+        endpoint = buildOpenAiTranscriptionUrl(normalizedBase);
+        logger.debug(
+          "STT endpoint: using OpenAI-compatible v1 path",
+          { base: normalizedBase, endpoint },
+          "transcription"
+        );
       } else {
         endpoint = buildApiUrl(normalizedBase, "/audio/transcriptions");
         logger.debug(

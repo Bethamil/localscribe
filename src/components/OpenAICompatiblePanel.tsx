@@ -5,7 +5,8 @@ import { Input } from "./ui/input";
 import ApiKeyInput from "./ui/ApiKeyInput";
 import ModelCardList from "./ui/ModelCardList";
 import SearchableModelList, { MODEL_SEARCH_THRESHOLD } from "./ui/SearchableModelList";
-import { buildApiUrl, normalizeBaseUrl } from "../config/constants";
+import CustomModelInput from "./ui/CustomModelInput";
+import { buildApiUrl, ensureV1Suffix, normalizeBaseUrl } from "../config/constants";
 import { isSecureEndpoint } from "../utils/urlUtils";
 import { GetApiKeyLink } from "./ui/GetApiKeyLink";
 
@@ -31,6 +32,16 @@ interface OpenAICompatiblePanelProps {
   // Providers whose /models is public but whose inference needs a key.
   apiKeyRequired?: boolean;
   getKeyUrl?: string;
+  // Self-hosted OpenAI-compatible servers expose their API below /v1 even
+  // when the user enters only the deployment origin.
+  forceV1BaseUrl?: boolean;
+  showCustomModelInput?: boolean;
+  customModelPlaceholder?: string;
+}
+
+function normalizePanelBase(value: string | null | undefined, forceV1BaseUrl: boolean): string {
+  const normalized = normalizeBaseUrl(value);
+  return normalized && forceV1BaseUrl ? ensureV1Suffix(normalized) : normalized;
 }
 
 export default function OpenAICompatiblePanel({
@@ -46,6 +57,9 @@ export default function OpenAICompatiblePanel({
   lockedBaseUrl = false,
   apiKeyRequired = false,
   getKeyUrl,
+  forceV1BaseUrl = false,
+  showCustomModelInput = false,
+  customModelPlaceholder,
 }: OpenAICompatiblePanelProps) {
   const { t } = useTranslation();
   const [draftBase, setDraftBase] = useState(baseUrl);
@@ -55,7 +69,7 @@ export default function OpenAICompatiblePanel({
   const isMountedRef = useRef(true);
   const lastLoadedBaseRef = useRef<string | null>(null);
   const pendingBaseRef = useRef<string | null>(null);
-  const latestBaseRef = useRef<string>(normalizeBaseUrl(baseUrl));
+  const latestBaseRef = useRef<string>(normalizePanelBase(baseUrl, forceV1BaseUrl));
 
   useEffect(() => {
     isMountedRef.current = true;
@@ -68,7 +82,10 @@ export default function OpenAICompatiblePanel({
     setDraftBase(baseUrl);
   }, [baseUrl]);
 
-  const normalizedBase = useMemo(() => normalizeBaseUrl(baseUrl), [baseUrl]);
+  const normalizedBase = useMemo(
+    () => normalizePanelBase(baseUrl, forceV1BaseUrl),
+    [baseUrl, forceV1BaseUrl]
+  );
 
   useEffect(() => {
     latestBaseRef.current = normalizedBase;
@@ -82,7 +99,7 @@ export default function OpenAICompatiblePanel({
   const loadRemoteModels = useCallback(
     async (baseOverride?: string, force = false) => {
       const rawBase = (baseOverride ?? baseUrl) || "";
-      const normalized = normalizeBaseUrl(rawBase);
+      const normalized = normalizePanelBase(rawBase, forceV1BaseUrl);
 
       if (!normalized) {
         if (isMountedRef.current) {
@@ -199,7 +216,7 @@ export default function OpenAICompatiblePanel({
         }
       }
     },
-    [baseUrl, apiKey, t]
+    [baseUrl, apiKey, forceV1BaseUrl, t]
   );
 
   useEffect(() => {
@@ -217,12 +234,14 @@ export default function OpenAICompatiblePanel({
   }, [hasBase, normalizedBase, loadRemoteModels]);
 
   const applyBase = useCallback(() => {
-    const normalized = trimmedDraft ? normalizeBaseUrl(trimmedDraft) : trimmedDraft;
+    const normalized = trimmedDraft
+      ? normalizePanelBase(trimmedDraft, forceV1BaseUrl)
+      : trimmedDraft;
     setDraftBase(normalized);
     setBaseUrl(normalized);
     lastLoadedBaseRef.current = null;
     loadRemoteModels(normalized, true);
-  }, [trimmedDraft, setBaseUrl, loadRemoteModels]);
+  }, [trimmedDraft, forceV1BaseUrl, setBaseUrl, loadRemoteModels]);
 
   const handleBlur = useCallback(() => {
     if (!trimmedDraft) return;
@@ -249,7 +268,10 @@ export default function OpenAICompatiblePanel({
   }, [applyBase, isDraftDirty, trimmedDraft, loadRemoteModels]);
 
   const displayedModels = isDraftDirty ? [] : modelOptions;
-  const queryUrl = hasBase ? `${normalizedBase}/models` : `${baseUrlPlaceholder}/models`;
+  const queryUrl = buildApiUrl(
+    hasBase ? normalizedBase : normalizePanelBase(baseUrlPlaceholder, forceV1BaseUrl),
+    "/models"
+  );
 
   return (
     <>
@@ -356,6 +378,13 @@ export default function OpenAICompatiblePanel({
             selectedModel={model}
             onModelSelect={setModel}
             truncateDescription
+          />
+        )}
+        {showCustomModelInput && (
+          <CustomModelInput
+            value={model}
+            onChange={setModel}
+            placeholder={customModelPlaceholder}
           />
         )}
       </div>

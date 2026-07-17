@@ -1,5 +1,5 @@
 import { useTranslation } from "react-i18next";
-import { Input } from "./ui/input";
+import OpenAICompatiblePanel from "./OpenAICompatiblePanel";
 
 interface SelfHostedPanelProps {
   service: "transcription" | "reasoning";
@@ -22,47 +22,25 @@ export default function SelfHostedPanel({
 }: SelfHostedPanelProps) {
   const { t } = useTranslation();
 
-  const placeholderUrl =
-    service === "transcription" ? "http://192.168.1.126:8178" : "http://192.168.1.126:8080";
+  const placeholderUrl = "https://your-server.example.com/v1";
 
   return (
-    <div className="border border-border rounded-lg p-3 space-y-2.5">
-      <div className="space-y-1.5">
-        <label className="block text-xs font-medium text-foreground">
-          {t("settingsPage.selfHosted.serverUrl")}
-        </label>
-        <Input
-          value={url}
-          onChange={(e) => onUrlChange(e.target.value)}
-          placeholder={placeholderUrl}
-          className="h-8 text-sm"
-        />
-      </div>
-      {onModelChange && (
-        <div className="space-y-1.5">
-          <label className="block text-xs font-medium text-foreground">{t("common.model")}</label>
-          <Input
-            value={model ?? ""}
-            onChange={(e) => onModelChange(e.target.value)}
-            placeholder={service === "transcription" ? "whisper-1" : "model-name"}
-            className="h-8 text-sm"
-          />
-        </div>
-      )}
-      {onApiKeyChange && (
-        <div className="space-y-1.5">
-          <label className="block text-xs font-medium text-foreground">
-            {t("settingsPage.selfHosted.apiKeyOptional")}
-          </label>
-          <Input
-            type="password"
-            value={apiKey ?? ""}
-            onChange={(e) => onApiKeyChange(e.target.value)}
-            autoComplete="off"
-            className="h-8 text-sm"
-          />
-        </div>
-      )}
+    <div className="border border-border rounded-lg p-3">
+      <OpenAICompatiblePanel
+        baseUrl={url}
+        setBaseUrl={onUrlChange}
+        apiKey={apiKey ?? ""}
+        setApiKey={onApiKeyChange ?? (() => {})}
+        model={model ?? ""}
+        setModel={onModelChange ?? (() => {})}
+        baseUrlPlaceholder={placeholderUrl}
+        helpExamples={
+          <p className="text-xs text-muted-foreground">{t("reasoning.selfHosted.endpointHelp")}</p>
+        }
+        forceV1BaseUrl
+        showCustomModelInput={Boolean(onModelChange)}
+        customModelPlaceholder={service === "transcription" ? "whisper-1" : "model-name"}
+      />
     </div>
   );
 }

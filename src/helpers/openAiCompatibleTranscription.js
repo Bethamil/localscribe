@@ -12,12 +12,8 @@ function buildOpenAiTranscriptionUrl(value) {
   url.hash = "";
   const pathname = url.pathname.replace(/\/+$/, "");
   if (/\/v1\/audio\/transcriptions$/i.test(pathname)) return url.toString();
-  if (/\/audio\/transcriptions$/i.test(pathname)) return url.toString();
-  if (/\/v1$/i.test(pathname)) {
-    url.pathname = `${pathname}/audio/transcriptions`;
-  } else {
-    url.pathname = `${pathname}/v1/audio/transcriptions`;
-  }
+  const basePath = pathname.replace(/\/audio\/transcriptions$/i, "").replace(/\/v1$/i, "");
+  url.pathname = `${basePath}/v1/audio/transcriptions`;
   return url.toString();
 }
 

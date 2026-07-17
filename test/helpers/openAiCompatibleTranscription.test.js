@@ -21,6 +21,10 @@ test("base URL with and without /v1 resolves one transcription path", () => {
     buildOpenAiTranscriptionUrl("https://example.test/v1/"),
     "https://example.test/v1/audio/transcriptions"
   );
+  assert.equal(
+    buildOpenAiTranscriptionUrl("https://example.test/audio/transcriptions"),
+    "https://example.test/v1/audio/transcriptions"
+  );
 });
 
 test("batch meeting providers bypass realtime WebSocket preparation", () => {

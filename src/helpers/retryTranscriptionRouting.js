@@ -1,6 +1,7 @@
-import { buildApiUrl, normalizeBaseUrl } from "../config/constants.ts";
+import { normalizeBaseUrl } from "../config/constants.ts";
 import { isSecureEndpoint } from "../utils/urlUtils.ts";
 import { resolveSelfHostedTranscriptionModel } from "./selfHostedTranscription.js";
+import { buildOpenAiTranscriptionUrl } from "./openAiCompatibleTranscription.js";
 
 export function resolveSelfHostedRetryRoute(settings) {
   const mode =
@@ -35,7 +36,7 @@ export function resolveSelfHostedRetryRoute(settings) {
 
   return {
     kind: "self-hosted",
-    endpoint: buildApiUrl(normalizedBaseUrl, "/audio/transcriptions"),
+    endpoint: buildOpenAiTranscriptionUrl(normalizedBaseUrl),
     model: resolveSelfHostedTranscriptionModel(settings),
   };
 }

@@ -28,7 +28,7 @@ test("selects self-hosted retry routing over stale cloud settings", async () => 
 test("normalizes supported self-hosted URLs and allows private HTTP endpoints", async () => {
   const { resolveSelfHostedRetryRoute } = await load();
   const cases = [
-    ["http://localhost:5001", "http://localhost:5001/audio/transcriptions"],
+    ["http://localhost:5001", "http://localhost:5001/v1/audio/transcriptions"],
     ["http://localhost:5001/v1", "http://localhost:5001/v1/audio/transcriptions"],
     ["http://127.0.0.1:5001/v1", "http://127.0.0.1:5001/v1/audio/transcriptions"],
     ["http://192.168.1.20:5001/v1", "http://192.168.1.20:5001/v1/audio/transcriptions"],
