@@ -78,8 +78,6 @@ import {
   setSessionDiarizationEnabled,
   setSessionExpectedCount,
 } from "../../stores/meetingRecordingStore";
-import { useNotesOnboarding } from "../../hooks/useNotesOnboarding";
-import NotesOnboarding from "./NotesOnboarding";
 import { isRegenerableNoteTitle } from "../../helpers/regenerableNoteTitle";
 
 const FOLDER_INPUT_CLASS =
@@ -149,8 +147,6 @@ export default function PersonalNotesView({
     : navigator.platform.startsWith("Win")
       ? "Explorer"
       : "Files";
-  const { isComplete: isOnboardingComplete, complete: completeOnboarding } = useNotesOnboarding();
-
   const isTranscribing = useMeetingRecordingStore((s) => s.isRecording);
   const realtimeTranscript = useMeetingRecordingStore((s) => s.transcript);
   const realtimeSegments = useMeetingRecordingStore((s) => s.segments);
@@ -570,10 +566,6 @@ export default function PersonalNotesView({
         content: isLocalSynced ? localContent : activeNote.content,
       }
     : null;
-
-  if (!isOnboardingComplete) {
-    return <NotesOnboarding onComplete={completeOnboarding} />;
-  }
 
   return (
     <div className="flex h-full">

@@ -25,6 +25,11 @@ test("usage compatibility has no entitlement and no quota gate", () => {
   assert.doesNotMatch(source, /cloudUsage|cloudCheckout|cloudBillingPortal/);
 });
 
+test("notes open directly without AI, account, or onboarding gates", () => {
+  const source = read("src/components/notes/PersonalNotesView.tsx");
+  assert.doesNotMatch(source, /NotesOnboarding|useNotesOnboarding|notesOnboardingComplete/);
+});
+
 test("batch meeting route contains no external realtime endpoint", () => {
   const source = read("src/helpers/openAiCompatibleTranscription.js");
   assert.doesNotMatch(source, /v1\/realtime|wss:\/\/api\.openai\.com/);
