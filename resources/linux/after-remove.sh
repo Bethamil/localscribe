@@ -27,7 +27,7 @@ if [ -z "$REAL_HOME" ]; then
   exit 0
 fi
 
-CACHE_DIR="$REAL_HOME/.cache/openwhispr"
+CACHE_DIR="$REAL_HOME/.cache/localscribe"
 MODELS_DIR="$CACHE_DIR/models"
 
 if [ -d "$MODELS_DIR" ]; then

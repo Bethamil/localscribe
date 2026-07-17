@@ -18,11 +18,11 @@
 !macro customUnInstall
   ${ifNot} ${isUpdated}
     nsExec::ExecToLog 'netsh advfirewall firewall delete rule name="${SHERPA_FIREWALL_RULE}"'
-    StrCpy $0 "$PROFILE\.cache\openwhispr\models"
+    StrCpy $0 "$PROFILE\.cache\localscribe\models"
     IfFileExists "$0\*.*" 0 +3
       RMDir /r "$0"
       DetailPrint "Removed LocalScribe cached models"
-    StrCpy $1 "$PROFILE\.cache\openwhispr"
+    StrCpy $1 "$PROFILE\.cache\localscribe"
     RMDir "$1"
   ${endIf}
 !macroend

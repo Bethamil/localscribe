@@ -2554,7 +2554,7 @@ class IPCHandlers {
 
       // Delete downloaded models
       try {
-        const whisperDir = path.join(os.homedir(), ".cache", "openwhispr", "whisper-models");
+        const whisperDir = path.join(os.homedir(), ".cache", "localscribe", "whisper-models");
         if (fs.existsSync(whisperDir)) fs.rmSync(whisperDir, { recursive: true, force: true });
       } catch (e) {
         errors.push(`Whisper models: ${e.message}`);

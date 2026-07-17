@@ -21,7 +21,6 @@ remove_target() {
 
 echo "Stopping running LocalScribe/Electron processes..."
 pkill -f "LocalScribe" 2>/dev/null || true
-pkill -f "open-whispr" 2>/dev/null || true
 pkill -f "Electron Helper.*LocalScribe" 2>/dev/null || true
 
 echo "Removing /Applications/LocalScribe.app (requires admin)..."
@@ -29,35 +28,28 @@ remove_target "/Applications/LocalScribe.app"
 
 echo "Purging Application Support data..."
 remove_target "$HOME/Library/Application Support/LocalScribe"
-remove_target "$HOME/Library/Application Support/open-whispr"
-remove_target "$HOME/Library/Application Support/LocalScribe-dev"
-remove_target "$HOME/Library/Application Support/com.openwhispr"
-remove_target "$HOME/Library/Application Support/com.openwhispr.LocalScribe"
+remove_target "$HOME/Library/Application Support/LocalScribe-development"
+remove_target "$HOME/Library/Application Support/LocalScribe-staging"
 
 echo "Removing caches, logs, and saved state..."
-remove_target "$HOME/Library/Caches/open-whispr"
-remove_target "$HOME/Library/Caches/com.openwhispr.LocalScribe"
-remove_target "$HOME/Library/Preferences/com.openwhispr.LocalScribe.plist"
-remove_target "$HOME/Library/Preferences/com.openwhispr.helper.plist"
+remove_target "$HOME/.cache/localscribe"
+remove_target "$HOME/Library/Caches/app.localscribe.desktop"
+remove_target "$HOME/Library/Preferences/app.localscribe.desktop.plist"
 remove_target "$HOME/Library/Logs/LocalScribe"
-remove_target "$HOME/Library/Saved Application State/com.openwhispr.LocalScribe.savedState"
+remove_target "$HOME/Library/Saved Application State/app.localscribe.desktop.savedState"
+
+echo "Removing LocalScribe Keychain entry..."
+security delete-generic-password -s "LocalScribe" -a "secrets-master-key" >/dev/null 2>&1 || true
 
 echo "Cleaning temporary files..."
 shopt -s nullglob
-for tmp in /tmp/openwhispr*; do
+for tmp in /tmp/localscribe*; do
   remove_target "$tmp"
 done
 for crash in "$HOME/Library/Application Support/CrashReporter"/LocalScribe_*; do
   remove_target "$crash"
 done
 shopt -u nullglob
-
-read -r -p "Remove downloaded Whisper models and caches (~/.cache/whisper, ~/Library/Application Support/whisper)? [y/N]: " wipe_models
-if [[ "$wipe_models" =~ ^[Yy]$ ]]; then
-  remove_target "$HOME/.cache/whisper"
-  remove_target "$HOME/Library/Application Support/whisper"
-  remove_target "$HOME/Library/Application Support/LocalScribe/models"
-fi
 
 ENV_FILE="$PROJECT_ROOT/.env"
 if [[ -f "$ENV_FILE" ]]; then
@@ -71,9 +63,9 @@ fi
 cat <<'EOF'
 macOS keeps microphone, screen recording, and accessibility approvals even after files are removed.
 Reset them if you want a truly fresh start:
-  tccutil reset Microphone com.openwhispr.app
-  tccutil reset Accessibility com.openwhispr.app
-  tccutil reset ScreenCapture com.openwhispr.app
+  tccutil reset Microphone app.localscribe.desktop
+  tccutil reset Accessibility app.localscribe.desktop
+  tccutil reset ScreenCapture app.localscribe.desktop
 
 Full uninstall complete. Reboot if you removed permissions, then reinstall or run npm scripts on a clean tree.
 EOF
