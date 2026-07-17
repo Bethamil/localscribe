@@ -39,6 +39,11 @@ const {
   isSpeakerLocked,
 } = require("./speakerAssignmentPolicy");
 const { downsample24kTo16k, pcm16ToWav } = require("../utils/audioUtils");
+const {
+  analyzePcm16,
+  isBatchMeetingProvider,
+  transcribeOpenAiCompatibleWav,
+} = require("./openAiCompatibleTranscription");
 const postMigrationDetector = require("./postMigrationDetector");
 const {
   DEFAULT_EXPECTED_SPEAKER_COUNT,
@@ -58,6 +63,7 @@ const STREAMING_CLIENT_BY_PROVIDER = {
 };
 const ALLOWED_MEETING_PROVIDERS = new Set([
   "local",
+  "openai-compatible-batch",
   "openai-realtime",
   "assemblyai-realtime",
   "deepgram-realtime",
@@ -180,7 +186,7 @@ function resolveAllowedAudioPath(filePath) {
 }
 
 function buildMultipartBody(fileBuffer, fileName, contentType, fields = {}) {
-  const boundary = `----OpenWhispr${Date.now()}`;
+  const boundary = `----LocalScribe${Date.now()}`;
   const parts = [];
 
   parts.push(
@@ -1800,7 +1806,7 @@ class IPCHandlers {
         const resolved = path.resolve(filePath);
         const basename = path.basename(resolved);
         if (!basename.startsWith("ow-url-") && !basename.startsWith("ow-diarize-")) {
-          return { success: false, error: "Not an OpenWhispr temp file" };
+          return { success: false, error: "Not an LocalScribe temp file" };
         }
         const real = fs.realpathSync(resolved);
         let tempDir = getSafeTempDir();
@@ -1809,7 +1815,7 @@ class IPCHandlers {
         } catch {}
         const rel = path.relative(tempDir, real);
         if (rel.startsWith("..") || path.isAbsolute(rel)) {
-          return { success: false, error: "Not an OpenWhispr temp file" };
+          return { success: false, error: "Not an LocalScribe temp file" };
         }
         fs.unlinkSync(real);
         return { success: true };
@@ -3099,6 +3105,14 @@ class IPCHandlers {
       return this.environmentManager.saveCustomTranscriptionKey(key);
     });
 
+    ipcMain.handle("get-meeting-transcription-key", async () => {
+      return this.environmentManager.getMeetingTranscriptionKey();
+    });
+
+    ipcMain.handle("save-meeting-transcription-key", async (event, key) => {
+      return this.environmentManager.saveMeetingTranscriptionKey(key);
+    });
+
     ipcMain.handle("get-cleanup-custom-key", async () => {
       return this.environmentManager.getCleanupCustomKey();
     });
@@ -4145,13 +4159,13 @@ class IPCHandlers {
     ipcMain.handle("cloud-transcribe", async (event, audioBuffer, opts = {}) => {
       try {
         const apiUrl = getApiUrl();
-        if (!apiUrl) throw new Error("OpenWhispr API URL not configured");
+        if (!apiUrl) throw new Error("LocalScribe API URL not configured");
 
         const authHeader = await getAuthHeader(event);
         if (!Object.keys(authHeader).length) throw new Error("Not authenticated");
 
         const audioData = Buffer.from(audioBuffer);
-        // Reused for the local SQLite row so SyncService upserts the existing
+        // Reused for the local SQLite row so local updates target the existing
         // cloud row (filling in text) instead of creating a duplicate.
         const clientTranscriptionId = crypto.randomUUID();
         const multipartFields = {
@@ -4990,7 +5004,7 @@ class IPCHandlers {
       const postServerToken = async (path, body = {}) => {
         const apiUrl = getApiUrl();
         if (!apiUrl) {
-          const err = new Error("OpenWhispr API URL not configured");
+          const err = new Error("LocalScribe API URL not configured");
           err.code = "NO_API";
           throw err;
         }
@@ -5248,7 +5262,10 @@ class IPCHandlers {
     let meetingLocalProvider = null;
     let meetingLocalModel = null;
     let meetingLocalLanguage = null;
-    let meetingLocalTranscribing = false;
+    let meetingRemoteBaseUrl = null;
+    let meetingRemoteApiKey = "";
+    let meetingLocalTranscriptionPromise = null;
+    const meetingRemoteAbortControllers = new Set();
     let meetingPendingMicChunks = [];
     let meetingPendingMicFinals = [];
     let meetingPendingMicFinalTimer = null;
@@ -5595,20 +5612,12 @@ class IPCHandlers {
 
       const pcm24k = Buffer.concat(chunks);
       meetingLocalBuffers[source] = [];
+      const chunkEndedAt = Date.now();
 
       const pcm16k = downsample24kTo16k(pcm24k);
 
-      const samples = new Int16Array(pcm16k.buffer, pcm16k.byteOffset, pcm16k.length / 2);
-      let sumSq = 0;
-      let peak = 0;
-      for (let i = 0; i < samples.length; i++) {
-        const n = samples[i] / 0x7fff;
-        sumSq += n * n;
-        const abs = n < 0 ? -n : n;
-        if (abs > peak) peak = abs;
-      }
-      const rms = Math.sqrt(sumSq / samples.length);
-      if (rms < 0.0015 && peak < 0.05) {
+      const { rms, peak, silent } = analyzePcm16(pcm16k);
+      if (silent) {
         debugLogger.debug("Skipping silent meeting chunk", {
           source,
           rms: rms.toFixed(4),
@@ -5635,7 +5644,23 @@ class IPCHandlers {
 
       try {
         let result;
-        if (meetingLocalProvider === "nvidia") {
+        if (meetingLocalProvider === "openai-compatible") {
+          const controller = new AbortController();
+          meetingRemoteAbortControllers.add(controller);
+          try {
+            result = await transcribeOpenAiCompatibleWav({
+              wav,
+              baseUrl: meetingRemoteBaseUrl,
+              model: meetingLocalModel,
+              apiKey: meetingRemoteApiKey,
+              language: meetingLocalLanguage,
+              signal: controller.signal,
+              logger: debugLogger,
+            });
+          } finally {
+            meetingRemoteAbortControllers.delete(controller);
+          }
+        } else if (meetingLocalProvider === "nvidia") {
           result = await this.parakeetManager.transcribeLocalParakeet(wav, {
             model: meetingLocalModel,
           });
@@ -5650,7 +5675,7 @@ class IPCHandlers {
 
         if (result?.success && result.text?.trim()) {
           const text = result.text.trim();
-          const segTimestamp = Date.now();
+          const segTimestamp = chunkEndedAt;
           let micSuppression = null;
           if (source === "mic") {
             const chunkDurationMs = (pcm24k.length / 2 / 24000) * 1000;
@@ -5774,13 +5799,47 @@ class IPCHandlers {
     };
 
     const transcribeAllLocalBuffers = async () => {
-      if (meetingLocalTranscribing) return;
-      meetingLocalTranscribing = true;
+      if (meetingLocalTranscriptionPromise) return meetingLocalTranscriptionPromise;
+      const promise = Promise.all([
+        transcribeLocalMeetingChunk("system"),
+        transcribeLocalMeetingChunk("mic"),
+      ]);
+      meetingLocalTranscriptionPromise = promise;
       try {
-        await transcribeLocalMeetingChunk("system");
-        await transcribeLocalMeetingChunk("mic");
+        await promise;
       } finally {
-        meetingLocalTranscribing = false;
+        if (meetingLocalTranscriptionPromise === promise) {
+          meetingLocalTranscriptionPromise = null;
+        }
+      }
+    };
+
+    const waitForMeetingTranscriptions = async (timeoutMs = 20_000) => {
+      const active = meetingLocalTranscriptionPromise;
+      if (!active) return;
+      let timeout;
+      try {
+        await Promise.race([
+          active,
+          new Promise((_, reject) => {
+            timeout = setTimeout(
+              () => reject(new Error("Meeting transcription flush timed out")),
+              timeoutMs
+            );
+          }),
+        ]);
+      } catch (error) {
+        if (error.message !== "Meeting transcription flush timed out") throw error;
+        debugLogger.warn("Meeting transcription flush timed out; cancelling remote requests", {
+          activeRequests: meetingRemoteAbortControllers.size,
+        });
+        for (const controller of meetingRemoteAbortControllers) controller.abort(error);
+        await Promise.race([
+          active.catch(() => {}),
+          new Promise((resolve) => setTimeout(resolve, 1000)),
+        ]);
+      } finally {
+        if (timeout) clearTimeout(timeout);
       }
     };
 
@@ -5816,7 +5875,11 @@ class IPCHandlers {
       meetingLocalProvider = null;
       meetingLocalModel = null;
       meetingLocalLanguage = null;
-      meetingLocalTranscribing = false;
+      meetingRemoteBaseUrl = null;
+      meetingRemoteApiKey = "";
+      for (const controller of meetingRemoteAbortControllers) controller.abort();
+      meetingRemoteAbortControllers.clear();
+      meetingLocalTranscriptionPromise = null;
       meetingPendingMicChunks = [];
       resetPendingMicFinals();
       meetingAecEnabled = false;
@@ -6074,7 +6137,7 @@ class IPCHandlers {
         return { success: false, error: `Unsupported provider: ${options.provider}` };
       }
 
-      if (options.provider === "local") {
+      if (isBatchMeetingProvider(options.provider)) {
         return { success: true };
       }
 
@@ -6181,11 +6244,16 @@ class IPCHandlers {
           };
         }
 
-        if (options.provider === "local") {
+        if (isBatchMeetingProvider(options.provider)) {
           meetingLocalMode = true;
-          meetingLocalProvider = options.localProvider || "whisper";
-          meetingLocalModel = options.localModel || null;
+          const remoteBatch = options.provider === "openai-compatible-batch";
+          meetingLocalProvider = remoteBatch
+            ? "openai-compatible"
+            : options.localProvider || "whisper";
+          meetingLocalModel = remoteBatch ? options.model || null : options.localModel || null;
           meetingLocalLanguage = options.language || null;
+          meetingRemoteBaseUrl = remoteBatch ? options.baseUrl || null : null;
+          meetingRemoteApiKey = remoteBatch ? options.apiKey || "" : "";
           meetingLocalWin = BrowserWindow.fromWebContents(event.sender);
           meetingLocalBuffers = { mic: [], system: [] };
           meetingLocalTranscript = "";
@@ -6204,7 +6272,7 @@ class IPCHandlers {
             "in local meeting mode"
           ));
 
-          debugLogger.debug("Meeting transcription started in local mode", {
+          debugLogger.debug("Meeting transcription started in batch mode", {
             provider: meetingLocalProvider,
             systemAudioMode,
             systemAudioStrategy,
@@ -6434,7 +6502,9 @@ class IPCHandlers {
             meetingLocalTimer = null;
           }
           try {
+            await waitForMeetingTranscriptions();
             await transcribeAllLocalBuffers();
+            await waitForMeetingTranscriptions();
           } catch (err) {
             debugLogger.error("Local meeting final transcription failed", { error: err.message });
           }
@@ -6675,7 +6745,7 @@ class IPCHandlers {
     ipcMain.handle("cloud-reason", async (event, text, opts = {}) => {
       try {
         const apiUrl = getApiUrl();
-        if (!apiUrl) throw new Error("OpenWhispr API URL not configured");
+        if (!apiUrl) throw new Error("LocalScribe API URL not configured");
 
         const authHeader = await getAuthHeader(event);
         if (!Object.keys(authHeader).length) throw new Error("Not authenticated");
@@ -6762,7 +6832,7 @@ class IPCHandlers {
     ipcMain.on("cloud-agent-stream-start", async (event, messages, opts = {}) => {
       try {
         const apiUrl = getApiUrl();
-        if (!apiUrl) throw new Error("OpenWhispr API URL not configured");
+        if (!apiUrl) throw new Error("LocalScribe API URL not configured");
 
         const authHeader = await getAuthHeader(event);
         if (!Object.keys(authHeader).length) throw new Error("Not authenticated");
@@ -6855,7 +6925,7 @@ class IPCHandlers {
     ipcMain.handle("agent-web-search", async (event, query, numResults = 5) => {
       try {
         const apiUrl = getApiUrl();
-        if (!apiUrl) throw new Error("OpenWhispr API URL not configured");
+        if (!apiUrl) throw new Error("LocalScribe API URL not configured");
 
         const authHeader = await getAuthHeader(event);
         if (!Object.keys(authHeader).length) throw new Error("Not authenticated");
@@ -6898,7 +6968,7 @@ class IPCHandlers {
       async (event, text, audioDurationSeconds, opts = {}) => {
         try {
           const apiUrl = getApiUrl();
-          if (!apiUrl) throw new Error("OpenWhispr API URL not configured");
+          if (!apiUrl) throw new Error("LocalScribe API URL not configured");
 
           const authHeader = await getAuthHeader(event);
           if (!Object.keys(authHeader).length) throw new Error("Not authenticated");
@@ -6949,7 +7019,7 @@ class IPCHandlers {
     ipcMain.handle("cloud-usage", async (event) => {
       try {
         const apiUrl = getApiUrl();
-        if (!apiUrl) throw new Error("OpenWhispr API URL not configured");
+        if (!apiUrl) throw new Error("LocalScribe API URL not configured");
 
         const authHeader = await getAuthHeader(event);
         if (!Object.keys(authHeader).length) throw new Error("Not authenticated");
@@ -6979,7 +7049,7 @@ class IPCHandlers {
     const fetchStripeUrl = async (event, endpoint, errorPrefix, body) => {
       try {
         const apiUrl = getApiUrl();
-        if (!apiUrl) throw new Error("OpenWhispr API URL not configured");
+        if (!apiUrl) throw new Error("LocalScribe API URL not configured");
 
         const authHeader = await getAuthHeader(event);
         if (!Object.keys(authHeader).length) throw new Error("Not authenticated");
@@ -7023,7 +7093,7 @@ class IPCHandlers {
     ipcMain.handle("cloud-switch-plan", async (event, opts) => {
       try {
         const apiUrl = getApiUrl();
-        if (!apiUrl) throw new Error("OpenWhispr API URL not configured");
+        if (!apiUrl) throw new Error("LocalScribe API URL not configured");
 
         const authHeader = await getAuthHeader(event);
         if (!Object.keys(authHeader).length) throw new Error("Not authenticated");
@@ -7055,7 +7125,7 @@ class IPCHandlers {
     ipcMain.handle("cloud-preview-switch", async (event, opts) => {
       try {
         const apiUrl = getApiUrl();
-        if (!apiUrl) throw new Error("OpenWhispr API URL not configured");
+        if (!apiUrl) throw new Error("LocalScribe API URL not configured");
 
         const authHeader = await getAuthHeader(event);
         if (!Object.keys(authHeader).length) throw new Error("Not authenticated");
@@ -7087,7 +7157,7 @@ class IPCHandlers {
     ipcMain.handle("cloud-api-request", async (event, opts) => {
       try {
         const apiUrl = getApiUrl();
-        if (!apiUrl) throw new Error("OpenWhispr API URL not configured");
+        if (!apiUrl) throw new Error("LocalScribe API URL not configured");
 
         if (typeof opts?.path !== "string" || !opts.path.startsWith("/")) {
           return { success: false, error: "Invalid API path" };
@@ -7157,7 +7227,7 @@ class IPCHandlers {
     ipcMain.handle("get-stt-config", async (event) => {
       try {
         const apiUrl = getApiUrl();
-        if (!apiUrl) throw new Error("OpenWhispr API URL not configured");
+        if (!apiUrl) throw new Error("LocalScribe API URL not configured");
 
         const authHeader = await getAuthHeader(event);
         if (!Object.keys(authHeader).length) throw new Error("Not authenticated");
@@ -7187,7 +7257,7 @@ class IPCHandlers {
     ipcMain.handle("get-note-recording-config", async (event) => {
       try {
         const apiUrl = getApiUrl();
-        if (!apiUrl) throw new Error("OpenWhispr API URL not configured");
+        if (!apiUrl) throw new Error("LocalScribe API URL not configured");
 
         const authHeader = await getAuthHeader(event);
         if (!Object.keys(authHeader).length) throw new Error("Not authenticated");
@@ -7220,7 +7290,7 @@ class IPCHandlers {
         if (!realCloud) return { success: false, error: "File path not allowed" };
 
         const apiUrl = getApiUrl();
-        if (!apiUrl) throw new Error("OpenWhispr API URL not configured");
+        if (!apiUrl) throw new Error("LocalScribe API URL not configured");
 
         const authHeader = await getAuthHeader(event);
         if (!Object.keys(authHeader).length) throw new Error("Not authenticated");
@@ -7496,7 +7566,7 @@ class IPCHandlers {
       try {
         const apiUrl = getApiUrl();
         if (!apiUrl) {
-          throw new Error("OpenWhispr API URL not configured");
+          throw new Error("LocalScribe API URL not configured");
         }
 
         const authHeader = await getAuthHeader(event);
@@ -7532,7 +7602,7 @@ class IPCHandlers {
       try {
         const apiUrl = getApiUrl();
         if (!apiUrl) {
-          throw new Error("OpenWhispr API URL not configured");
+          throw new Error("LocalScribe API URL not configured");
         }
 
         const authHeader = await getAuthHeader(event);
@@ -7570,7 +7640,7 @@ class IPCHandlers {
       try {
         const apiUrl = getApiUrl();
         if (!apiUrl) {
-          throw new Error("OpenWhispr API URL not configured");
+          throw new Error("LocalScribe API URL not configured");
         }
 
         const authHeader = await getAuthHeader(event);
@@ -7760,7 +7830,7 @@ class IPCHandlers {
     const fetchStreamingToken = async (event) => {
       const apiUrl = getApiUrl();
       if (!apiUrl) {
-        throw new Error("OpenWhispr API URL not configured");
+        throw new Error("LocalScribe API URL not configured");
       }
 
       const authHeader = await getAuthHeader(event);
@@ -7961,7 +8031,7 @@ class IPCHandlers {
 
     const fetchDeepgramStreamingTokenFromWindow = async (windowId) => {
       const apiUrl = getApiUrl();
-      if (!apiUrl) throw new Error("OpenWhispr API URL not configured");
+      if (!apiUrl) throw new Error("LocalScribe API URL not configured");
 
       const win = BrowserWindow.fromId(windowId);
       if (!win || win.isDestroyed()) throw new Error("Window not available for token refresh");
@@ -7991,7 +8061,7 @@ class IPCHandlers {
     const fetchDeepgramStreamingToken = async (event) => {
       const apiUrl = getApiUrl();
       if (!apiUrl) {
-        throw new Error("OpenWhispr API URL not configured");
+        throw new Error("LocalScribe API URL not configured");
       }
 
       const authHeader = await getAuthHeader(event);

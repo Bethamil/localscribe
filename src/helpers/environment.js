@@ -14,6 +14,7 @@ const SECRET_KEYS = [
   "CORTI_CLIENT_ID",
   "CORTI_CLIENT_SECRET",
   "CUSTOM_TRANSCRIPTION_API_KEY",
+  "MEETING_TRANSCRIPTION_API_KEY",
   "CUSTOM_CLEANUP_API_KEY",
   "BEDROCK_ACCESS_KEY_ID",
   "BEDROCK_SECRET_ACCESS_KEY",
@@ -230,7 +231,7 @@ class EnvironmentManager {
     // otherwise a partial-migration recovery can lose unencrypted secrets.
     const stripSecrets =
       this._encryptionAvailable() && fs.existsSync(this._getMigrationSentinelPath());
-    let envContent = "# OpenWhispr Environment Variables\n";
+    let envContent = "# LocalScribe Environment Variables\n";
     for (const key of PERSISTED_KEYS) {
       if (stripSecrets && SECRET_KEY_SET.has(key)) continue;
       if (process.env[key]) {
@@ -301,6 +302,14 @@ class EnvironmentManager {
 
   saveCustomTranscriptionKey(key) {
     return this._saveKey("CUSTOM_TRANSCRIPTION_API_KEY", key);
+  }
+
+  getMeetingTranscriptionKey() {
+    return this._getKey("MEETING_TRANSCRIPTION_API_KEY");
+  }
+
+  saveMeetingTranscriptionKey(key) {
+    return this._saveKey("MEETING_TRANSCRIPTION_API_KEY", key);
   }
 
   getCleanupCustomKey() {

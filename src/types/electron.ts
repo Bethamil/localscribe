@@ -1122,6 +1122,8 @@ declare global {
       // Custom endpoint API keys
       getCustomTranscriptionKey?: () => Promise<string | null>;
       saveCustomTranscriptionKey?: (key: string) => Promise<void>;
+      getMeetingTranscriptionKey?: () => Promise<string | null>;
+      saveMeetingTranscriptionKey?: (key: string) => Promise<void>;
       getCleanupCustomKey?: () => Promise<string | null>;
       saveCleanupCustomKey?: (key: string) => Promise<void>;
 
@@ -1223,7 +1225,7 @@ declare global {
       authGetToken?: () => Promise<string | null>;
       authSetToken?: (token: string) => Promise<void>;
 
-      // OpenWhispr Cloud API
+      // LocalScribe Cloud API
       cloudTranscribe?: (
         audioBuffer: ArrayBuffer,
         opts: { language?: string; prompt?: string; useCase?: string; diarization?: boolean }

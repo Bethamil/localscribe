@@ -7,6 +7,8 @@ interface SelfHostedPanelProps {
   onUrlChange: (url: string) => void;
   model?: string;
   onModelChange?: (model: string) => void;
+  apiKey?: string;
+  onApiKeyChange?: (apiKey: string) => void;
 }
 
 export default function SelfHostedPanel({
@@ -15,6 +17,8 @@ export default function SelfHostedPanel({
   onUrlChange,
   model,
   onModelChange,
+  apiKey,
+  onApiKeyChange,
 }: SelfHostedPanelProps) {
   const { t } = useTranslation();
 
@@ -40,7 +44,21 @@ export default function SelfHostedPanel({
           <Input
             value={model ?? ""}
             onChange={(e) => onModelChange(e.target.value)}
-            placeholder="Whisper-Large-v3-Turbo"
+            placeholder={service === "transcription" ? "whisper-1" : "model-name"}
+            className="h-8 text-sm"
+          />
+        </div>
+      )}
+      {onApiKeyChange && (
+        <div className="space-y-1.5">
+          <label className="block text-xs font-medium text-foreground">
+            {t("settingsPage.selfHosted.apiKeyOptional")}
+          </label>
+          <Input
+            type="password"
+            value={apiKey ?? ""}
+            onChange={(e) => onApiKeyChange(e.target.value)}
+            autoComplete="off"
             className="h-8 text-sm"
           />
         </div>

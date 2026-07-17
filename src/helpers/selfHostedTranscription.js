@@ -16,3 +16,26 @@ export function resolveSelfHostedTranscriptionModel(settings) {
       : "";
   return model.length > 0 ? model : null;
 }
+
+export function resolveOpenAiCompatibleMeetingOptions(settings, language) {
+  if (settings?.transcriptionMode !== "self-hosted") return null;
+  const baseUrl =
+    typeof settings.remoteTranscriptionUrl === "string"
+      ? settings.remoteTranscriptionUrl.trim()
+      : "";
+  const model =
+    typeof settings.remoteTranscriptionModel === "string"
+      ? settings.remoteTranscriptionModel.trim()
+      : "";
+  if (!baseUrl || !model) return null;
+  return {
+    provider: "openai-compatible-batch",
+    baseUrl,
+    model,
+    apiKey:
+      typeof settings.remoteTranscriptionApiKey === "string"
+        ? settings.remoteTranscriptionApiKey
+        : "",
+    language,
+  };
+}

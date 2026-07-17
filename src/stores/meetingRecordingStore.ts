@@ -1,5 +1,6 @@
 import { create } from "zustand";
 import { getSettings, selectResolvedMeetingTranscription } from "./settingsStore";
+import { resolveOpenAiCompatibleMeetingOptions } from "../helpers/selfHostedTranscription";
 import { useStreamingProvidersStore } from "./streamingProvidersStore";
 import { isBuiltInMicrophone } from "../utils/audioDeviceUtils";
 import { reconcileSavedMicSelection } from "../helpers/micSelectionRecovery";
@@ -112,6 +113,9 @@ const getMeetingTranscriptionOptions = () => {
   const state = getSettings();
   const resolved = selectResolvedMeetingTranscription(state);
   const language = getBaseLanguageCode(state.preferredLanguage);
+
+  const openAiCompatible = resolveOpenAiCompatibleMeetingOptions(resolved, language);
+  if (openAiCompatible) return openAiCompatible;
 
   if (resolved.useLocalWhisper) {
     return {

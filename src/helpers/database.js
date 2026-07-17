@@ -1068,7 +1068,7 @@ class DatabaseManager {
       if (!this.db) throw new Error("Database not initialized");
       // Guard on deleted_at so a delete or tombstone that raced the push isn't
       // flipped back to 'synced' (which would strand the deletion). changes=0
-      // signals that race to SyncService, which reconciles the cloud row.
+      // signals that may race with local writes.
       const result = this.db
         .prepare(
           "UPDATE custom_dictionary SET sync_status = 'synced', cloud_id = ? WHERE id = ? AND deleted_at IS NULL"

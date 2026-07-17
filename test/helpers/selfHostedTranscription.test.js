@@ -133,3 +133,27 @@ test("resolveSelfHostedTranscriptionModel returns null when remoteTranscriptionM
     null
   );
 });
+
+test("self-hosted meeting mode selects openai-compatible-batch", async () => {
+  const { resolveOpenAiCompatibleMeetingOptions } = await import(
+    "../../src/helpers/selfHostedTranscription.js"
+  );
+  assert.deepEqual(
+    resolveOpenAiCompatibleMeetingOptions(
+      {
+        transcriptionMode: "self-hosted",
+        remoteTranscriptionUrl: " https://example.test/v1 ",
+        remoteTranscriptionModel: " transcription-model ",
+        remoteTranscriptionApiKey: "",
+      },
+      "nl"
+    ),
+    {
+      provider: "openai-compatible-batch",
+      baseUrl: "https://example.test/v1",
+      model: "transcription-model",
+      apiKey: "",
+      language: "nl",
+    }
+  );
+});

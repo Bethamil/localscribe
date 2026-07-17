@@ -1,19 +1,17 @@
 import { useCallback } from "react";
 import { useTranslation } from "react-i18next";
-import { Cloud, Key, Cpu } from "lucide-react";
+import { Cpu, Network } from "lucide-react";
 import { useSettingsStore } from "../../stores/settingsStore";
 import { InferenceModeSelector } from "../ui/SettingsSection";
 import type { InferenceModeOption } from "../ui/SettingsSection";
 import TranscriptionModelPicker from "../TranscriptionModelPicker";
+import SelfHostedPanel from "../SelfHostedPanel";
 import type { InferenceMode } from "../../types/electron";
-import { useStartOnboarding } from "../../hooks/useStartOnboarding";
 
 export function UploadTranscriptionPanel() {
   const { t } = useTranslation();
-  const startOnboarding = useStartOnboarding();
 
   const {
-    isSignedIn,
     uploadTranscriptionMode,
     setUploadTranscriptionMode,
     setUploadUseLocalWhisper,
@@ -23,47 +21,33 @@ export function UploadTranscriptionPanel() {
     setUploadLocalTranscriptionProvider,
     uploadParakeetModel,
     setUploadParakeetModel,
-    uploadCloudTranscriptionProvider,
-    setUploadCloudTranscriptionProvider,
-    uploadCloudTranscriptionModel,
-    setUploadCloudTranscriptionModel,
-    uploadCloudTranscriptionBaseUrl,
-    setUploadCloudTranscriptionBaseUrl,
-    setUploadCloudTranscriptionMode,
+    remoteTranscriptionUrl,
+    setRemoteTranscriptionUrl,
+    remoteTranscriptionModel,
+    setRemoteTranscriptionModel,
+    customTranscriptionApiKey,
+    setCustomTranscriptionApiKey,
   } = useSettingsStore();
 
   const transcriptionModes: InferenceModeOption[] = [
-    {
-      id: "openwhispr",
-      label: t("settingsPage.transcription.modes.openwhispr"),
-      description: t("settingsPage.transcription.modes.openwhisprDesc"),
-      icon: <Cloud className="w-4 h-4" />,
-      disabled: !isSignedIn,
-      badge: !isSignedIn ? t("common.freeAccountRequired") : undefined,
-    },
-    {
-      id: "providers",
-      label: t("settingsPage.transcription.modes.providers"),
-      description: t("settingsPage.transcription.modes.providersDesc"),
-      icon: <Key className="w-4 h-4" />,
-    },
     {
       id: "local",
       label: t("settingsPage.transcription.modes.local"),
       description: t("settingsPage.transcription.modes.localDesc"),
       icon: <Cpu className="w-4 h-4" />,
     },
+    {
+      id: "self-hosted",
+      label: t("settingsPage.transcription.modes.selfHosted"),
+      description: t("settingsPage.transcription.modes.selfHostedDesc"),
+      icon: <Network className="w-4 h-4" />,
+    },
   ];
 
   const handleTranscriptionModeSelect = (mode: InferenceMode) => {
-    if (mode === "openwhispr" && !isSignedIn) {
-      startOnboarding();
-      return;
-    }
     if (mode === uploadTranscriptionMode) return;
     setUploadTranscriptionMode(mode);
     setUploadUseLocalWhisper(mode === "local");
-    setUploadCloudTranscriptionMode(mode === "openwhispr" ? "openwhispr" : "byok");
   };
 
   const handleLocalTranscriptionModelSelect = useCallback(
@@ -77,23 +61,21 @@ export function UploadTranscriptionPanel() {
     [uploadLocalTranscriptionProvider, setUploadParakeetModel, setUploadWhisperModel]
   );
 
-  const renderTranscriptionPicker = (mode: "cloud" | "local") => (
+  const renderTranscriptionPicker = () => (
     <TranscriptionModelPicker
-      selectedCloudProvider={uploadCloudTranscriptionProvider}
-      onCloudProviderSelect={setUploadCloudTranscriptionProvider}
-      selectedCloudModel={uploadCloudTranscriptionModel}
-      onCloudModelSelect={setUploadCloudTranscriptionModel}
+      selectedCloudProvider=""
+      onCloudProviderSelect={() => {}}
+      selectedCloudModel=""
+      onCloudModelSelect={() => {}}
       selectedLocalModel={
         uploadLocalTranscriptionProvider === "nvidia" ? uploadParakeetModel : uploadWhisperModel
       }
       onLocalModelSelect={handleLocalTranscriptionModelSelect}
       selectedLocalProvider={uploadLocalTranscriptionProvider}
       onLocalProviderSelect={setUploadLocalTranscriptionProvider}
-      useLocalWhisper={mode === "local"}
+      useLocalWhisper
       onModeChange={() => {}}
-      mode={mode}
-      cloudTranscriptionBaseUrl={uploadCloudTranscriptionBaseUrl}
-      setCloudTranscriptionBaseUrl={setUploadCloudTranscriptionBaseUrl}
+      mode="local"
       variant="settings"
     />
   );
@@ -106,8 +88,18 @@ export function UploadTranscriptionPanel() {
         onSelect={handleTranscriptionModeSelect}
       />
 
-      {uploadTranscriptionMode === "providers" && renderTranscriptionPicker("cloud")}
-      {uploadTranscriptionMode === "local" && renderTranscriptionPicker("local")}
+      {uploadTranscriptionMode === "local" && renderTranscriptionPicker()}
+      {uploadTranscriptionMode === "self-hosted" && (
+        <SelfHostedPanel
+          service="transcription"
+          url={remoteTranscriptionUrl}
+          onUrlChange={setRemoteTranscriptionUrl}
+          model={remoteTranscriptionModel}
+          onModelChange={setRemoteTranscriptionModel}
+          apiKey={customTranscriptionApiKey}
+          onApiKeyChange={setCustomTranscriptionApiKey}
+        />
+      )}
     </div>
   );
 }

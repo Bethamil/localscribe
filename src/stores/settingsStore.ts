@@ -30,6 +30,9 @@ import type { Snippet } from "../utils/snippets";
 
 let _ReasoningService: typeof import("../services/ReasoningService").default | null = null;
 
+const DEFAULT_OPENAI_COMPATIBLE_STT_URL = "http://127.0.0.1:8000/v1";
+const DEFAULT_OPENAI_COMPATIBLE_STT_MODEL = "whisper-1";
+
 const isBrowser = typeof window !== "undefined";
 
 function readString(key: string, fallback: string): string {
@@ -76,6 +79,7 @@ const MEETING_TRANSCRIPTION_PAIRS: ReadonlyArray<[string, string]> = [
   ["transcriptionMode", "meetingTranscriptionMode"],
   ["remoteTranscriptionType", "meetingRemoteTranscriptionType"],
   ["remoteTranscriptionUrl", "meetingRemoteTranscriptionUrl"],
+  ["remoteTranscriptionModel", "meetingRemoteTranscriptionModel"],
 ];
 const MEETING_REASONING_PAIRS: ReadonlyArray<[string, string]> = [
   ["reasoningProvider", "meetingReasoningProvider"],
@@ -265,7 +269,7 @@ migrateProviderSettings();
 // persists is available to copy. Before this context existed the upload page
 // used the base dictation settings, so copy each value the user actually set
 // into the matching `upload*` key. Fresh installs have no base keys persisted,
-// so nothing is copied and the upload context falls through to its OpenWhispr
+// so nothing is copied and the upload context falls through to its LocalScribe
 // Cloud defaults.
 const UPLOAD_TRANSCRIPTION_PAIRS: ReadonlyArray<[string, string]> = [
   ["useLocalWhisper", "uploadUseLocalWhisper"],
@@ -456,6 +460,8 @@ export interface SettingsState
   meetingCloudTranscriptionMode: string;
   meetingRemoteTranscriptionType: SelfHostedType;
   meetingRemoteTranscriptionUrl: string;
+  meetingRemoteTranscriptionModel: string;
+  meetingRemoteTranscriptionApiKey: string;
 
   uploadTranscriptionMode: InferenceMode;
   uploadUseLocalWhisper: boolean;
@@ -530,6 +536,8 @@ export interface SettingsState
   setMeetingCloudTranscriptionMode: (value: string) => void;
   setMeetingRemoteTranscriptionType: (type: SelfHostedType) => void;
   setMeetingRemoteTranscriptionUrl: (url: string) => void;
+  setMeetingRemoteTranscriptionModel: (model: string) => void;
+  setMeetingRemoteTranscriptionApiKey: (key: string) => void;
 
   setUploadTranscriptionMode: (mode: InferenceMode) => void;
   setUploadUseLocalWhisper: (value: boolean) => void;
@@ -804,6 +812,7 @@ const SECRET_IPC_SAVERS = {
   cortiApiKey: "saveCortiKey",
   tinfoil: "saveTinfoilKey",
   customTranscription: "saveCustomTranscriptionKey",
+  meetingTranscription: "saveMeetingTranscriptionKey",
   cleanupCustom: "saveCleanupCustomKey",
   bedrockAccessKeyId: "saveBedrockAccessKeyId",
   bedrockSecretAccessKey: "saveBedrockSecretAccessKey",
@@ -846,6 +855,7 @@ const STALE_SECRET_LOCALSTORAGE_KEYS = [
   "cortiApiKey",
   "tinfoilApiKey",
   "customTranscriptionApiKey",
+  "meetingRemoteTranscriptionApiKey",
   "customReasoningApiKey",
   "cleanupCustomApiKey",
   "bedrockAccessKeyId",
@@ -937,8 +947,8 @@ export const useSettingsStore = create<SettingsState>()((set, get) => ({
   assemblyAiStreaming: readBoolean("assemblyAiStreaming", true),
 
   autoGenerateNoteTitle: readBoolean("autoGenerateNoteTitle", true),
-  useCleanupModel: readBoolean("useCleanupModel", true),
-  useDictationAgent: readBoolean("useDictationAgent", true),
+  useCleanupModel: readBoolean("useCleanupModel", false),
+  useDictationAgent: readBoolean("useDictationAgent", false),
   cleanupModel: readString("cleanupModel", ""),
   cleanupProvider: readString("cleanupProvider", "openai"),
 
@@ -955,6 +965,7 @@ export const useSettingsStore = create<SettingsState>()((set, get) => ({
   cortiApiKey: "",
   tinfoilApiKey: "",
   customTranscriptionApiKey: "",
+  meetingRemoteTranscriptionApiKey: "",
   cleanupCustomApiKey: "",
 
   // Enterprise providers
@@ -1062,37 +1073,30 @@ export const useSettingsStore = create<SettingsState>()((set, get) => ({
   keepTranscriptionInClipboard: readBoolean("keepTranscriptionInClipboard", false),
   noteFilesEnabled: readBoolean("noteFilesEnabled", false),
   noteFilesPath: readString("noteFilesPath", ""),
-  isSignedIn: readBoolean("isSignedIn", false),
+  isSignedIn: false,
 
   transcriptionMode: (() => {
-    const v = readString("transcriptionMode", "openwhispr");
-    if (v === "openwhispr" || v === "providers" || v === "local" || v === "self-hosted") return v;
-    return "openwhispr" as InferenceMode;
+    const v = readString("transcriptionMode", "self-hosted");
+    return (v === "local" ? "local" : "self-hosted") as InferenceMode;
   })(),
   remoteTranscriptionType: (() => {
-    const v = readString("remoteTranscriptionType", "lan");
+    const v = readString("remoteTranscriptionType", "openai-compatible");
     return v === "openai-compatible" ? "openai-compatible" : ("lan" as SelfHostedType);
   })(),
-  remoteTranscriptionUrl: readString("remoteTranscriptionUrl", ""),
-  remoteTranscriptionModel: readString("remoteTranscriptionModel", ""),
+  remoteTranscriptionUrl: readString("remoteTranscriptionUrl", DEFAULT_OPENAI_COMPATIBLE_STT_URL),
+  remoteTranscriptionModel: readString(
+    "remoteTranscriptionModel",
+    DEFAULT_OPENAI_COMPATIBLE_STT_MODEL
+  ),
   cleanupMode: (() => {
-    const v = readString("cleanupMode", "openwhispr");
-    if (
-      v === "openwhispr" ||
-      v === "providers" ||
-      v === "local" ||
-      v === "self-hosted" ||
-      v === "enterprise"
-    )
-      return v;
-    return "openwhispr" as InferenceMode;
+    const v = readString("cleanupMode", "self-hosted");
+    return (v === "local" ? "local" : "self-hosted") as InferenceMode;
   })(),
   cleanupRemoteUrl: readString("cleanupRemoteUrl", ""),
 
   meetingTranscriptionMode: (() => {
-    const v = readString("meetingTranscriptionMode", "openwhispr");
-    if (v === "openwhispr" || v === "providers" || v === "local" || v === "self-hosted") return v;
-    return "openwhispr" as InferenceMode;
+    const v = readString("meetingTranscriptionMode", "self-hosted");
+    return (v === "local" ? "local" : "self-hosted") as InferenceMode;
   })(),
   meetingUseLocalWhisper: readBoolean("meetingUseLocalWhisper", false),
   meetingWhisperModel: readString("meetingWhisperModel", ""),
@@ -1106,15 +1110,21 @@ export const useSettingsStore = create<SettingsState>()((set, get) => ({
   meetingCloudTranscriptionBaseUrl: readString("meetingCloudTranscriptionBaseUrl", ""),
   meetingCloudTranscriptionMode: readString("meetingCloudTranscriptionMode", ""),
   meetingRemoteTranscriptionType: (() => {
-    const v = readString("meetingRemoteTranscriptionType", "lan");
+    const v = readString("meetingRemoteTranscriptionType", "openai-compatible");
     return v === "openai-compatible" ? "openai-compatible" : ("lan" as SelfHostedType);
   })(),
-  meetingRemoteTranscriptionUrl: readString("meetingRemoteTranscriptionUrl", ""),
+  meetingRemoteTranscriptionUrl: readString(
+    "meetingRemoteTranscriptionUrl",
+    DEFAULT_OPENAI_COMPATIBLE_STT_URL
+  ),
+  meetingRemoteTranscriptionModel: readString(
+    "meetingRemoteTranscriptionModel",
+    DEFAULT_OPENAI_COMPATIBLE_STT_MODEL
+  ),
 
   uploadTranscriptionMode: (() => {
-    const v = readString("uploadTranscriptionMode", "openwhispr");
-    if (v === "openwhispr" || v === "providers" || v === "local" || v === "self-hosted") return v;
-    return "openwhispr" as InferenceMode;
+    const v = readString("uploadTranscriptionMode", "self-hosted");
+    return (v === "local" ? "local" : "self-hosted") as InferenceMode;
   })(),
   uploadUseLocalWhisper: readBoolean("uploadUseLocalWhisper", false),
   uploadWhisperModel: readString("uploadWhisperModel", ""),
@@ -1129,16 +1139,8 @@ export const useSettingsStore = create<SettingsState>()((set, get) => ({
   uploadCloudTranscriptionMode: readString("uploadCloudTranscriptionMode", ""),
 
   noteFormattingMode: (() => {
-    const v = readString("noteFormattingMode", "openwhispr");
-    if (
-      v === "openwhispr" ||
-      v === "providers" ||
-      v === "local" ||
-      v === "self-hosted" ||
-      v === "enterprise"
-    )
-      return v;
-    return "openwhispr" as InferenceMode;
+    const v = readString("noteFormattingMode", "self-hosted");
+    return (v === "local" ? "local" : "self-hosted") as InferenceMode;
   })(),
   noteFormattingProvider: readString("noteFormattingProvider", ""),
   noteFormattingModel: readString("noteFormattingModel", ""),
@@ -1148,16 +1150,8 @@ export const useSettingsStore = create<SettingsState>()((set, get) => ({
   noteFormattingCustomApiKey: readString("noteFormattingCustomApiKey", ""),
 
   translationMode: (() => {
-    const v = readString("translationMode", "openwhispr");
-    if (
-      v === "openwhispr" ||
-      v === "providers" ||
-      v === "local" ||
-      v === "self-hosted" ||
-      v === "enterprise"
-    )
-      return v;
-    return "openwhispr" as InferenceMode;
+    const v = readString("translationMode", "self-hosted");
+    return (v === "local" ? "local" : "self-hosted") as InferenceMode;
   })(),
   translationProvider: readString("translationProvider", ""),
   translationModel: readString("translationModel", ""),
@@ -1204,6 +1198,11 @@ export const useSettingsStore = create<SettingsState>()((set, get) => ({
     type: SelfHostedType
   ) => void,
   setMeetingRemoteTranscriptionUrl: createStringSetter("meetingRemoteTranscriptionUrl"),
+  setMeetingRemoteTranscriptionModel: createStringSetter("meetingRemoteTranscriptionModel"),
+  setMeetingRemoteTranscriptionApiKey: (key: string) => {
+    useSettingsStore.setState({ meetingRemoteTranscriptionApiKey: key });
+    debouncedSaveSecret("meetingTranscription", key);
+  },
 
   setUploadTranscriptionMode: createStringSetter("uploadTranscriptionMode") as (
     mode: InferenceMode
@@ -1252,32 +1251,16 @@ export const useSettingsStore = create<SettingsState>()((set, get) => ({
   chatAgentKey: readString("chatAgentKey", ""),
   chatAgentCloudMode: readString("chatAgentCloudMode", "openwhispr"),
   chatAgentMode: (() => {
-    const v = readString("chatAgentMode", "openwhispr");
-    if (
-      v === "openwhispr" ||
-      v === "providers" ||
-      v === "local" ||
-      v === "self-hosted" ||
-      v === "enterprise"
-    )
-      return v;
-    return "openwhispr" as InferenceMode;
+    const v = readString("chatAgentMode", "self-hosted");
+    return (v === "local" ? "local" : "self-hosted") as InferenceMode;
   })(),
   chatAgentRemoteUrl: readString("chatAgentRemoteUrl", ""),
   chatAgentCloudBaseUrl: readString("chatAgentCloudBaseUrl", ""),
   chatAgentCustomApiKey: readString("chatAgentCustomApiKey", ""),
 
   dictationAgentMode: (() => {
-    const v = readString("dictationAgentMode", "openwhispr");
-    if (
-      v === "openwhispr" ||
-      v === "providers" ||
-      v === "local" ||
-      v === "self-hosted" ||
-      v === "enterprise"
-    )
-      return v;
-    return "openwhispr" as InferenceMode;
+    const v = readString("dictationAgentMode", "self-hosted");
+    return (v === "local" ? "local" : "self-hosted") as InferenceMode;
   })(),
   dictationAgentProvider: readString("dictationAgentProvider", ""),
   dictationAgentModel: readString("dictationAgentModel", ""),
@@ -1342,20 +1325,13 @@ export const useSettingsStore = create<SettingsState>()((set, get) => ({
   setCustomDictionary: (words: string[]) => {
     if (isBrowser) localStorage.setItem("customDictionary", JSON.stringify(words));
     set({ customDictionary: words });
-    window.electronAPI
-      ?.setDictionary(words)
-      .then(() => {
-        void import("../services/SyncService.js").then(({ syncService }) => {
-          if (syncService.canSync()) void syncService.syncDictionaryNow();
-        });
-      })
-      .catch((err) => {
-        logger.warn(
-          "Failed to sync dictionary to SQLite",
-          { error: (err as Error).message },
-          "settings"
-        );
-      });
+    window.electronAPI?.setDictionary(words).catch((err) => {
+      logger.warn(
+        "Failed to sync dictionary to SQLite",
+        { error: (err as Error).message },
+        "settings"
+      );
+    });
   },
 
   // For broadcasts from main process — DB is already authoritative, only update UI.
@@ -1367,20 +1343,13 @@ export const useSettingsStore = create<SettingsState>()((set, get) => ({
   setSnippets: (snippets: Snippet[]) => {
     if (isBrowser) localStorage.setItem("snippets", JSON.stringify(snippets));
     set({ snippets });
-    window.electronAPI
-      ?.setSnippets?.(snippets)
-      .then(() => {
-        void import("../services/SyncService.js").then(({ syncService }) => {
-          if (syncService.canSync()) void syncService.syncSnippetsNow();
-        });
-      })
-      .catch((err) => {
-        logger.warn(
-          "Failed to sync snippets to SQLite",
-          { error: (err as Error).message },
-          "settings"
-        );
-      });
+    window.electronAPI?.setSnippets?.(snippets).catch((err) => {
+      logger.warn(
+        "Failed to sync snippets to SQLite",
+        { error: (err as Error).message },
+        "settings"
+      );
+    });
   },
 
   // For broadcasts from main process — DB is already authoritative, only update UI.
@@ -1783,7 +1752,7 @@ export const useSettingsStore = create<SettingsState>()((set, get) => ({
       cloudTranscriptionModel,
     } = useSettingsStore.getState();
     // Each Settings tab selects on its InferenceMode field, so set it for every
-    // scope — otherwise the UI keeps showing the previous mode (e.g. OpenWhispr
+    // scope — otherwise the UI keeps showing the previous mode (e.g. LocalScribe
     // Cloud) even though the cloud routing now points at the new provider.
     const mode = deriveTranscriptionMode(
       useLocalWhisper,
@@ -1930,6 +1899,8 @@ export interface ResolvedMeetingTranscription {
   transcriptionMode: InferenceMode;
   remoteTranscriptionType: SelfHostedType;
   remoteTranscriptionUrl: string;
+  remoteTranscriptionModel: string;
+  remoteTranscriptionApiKey: string;
 }
 
 export const selectResolvedMeetingTranscription = (
@@ -1953,6 +1924,11 @@ export const selectResolvedMeetingTranscription = (
     transcriptionMode: state.meetingTranscriptionMode,
     remoteTranscriptionType: state.meetingRemoteTranscriptionType,
     remoteTranscriptionUrl: state.meetingRemoteTranscriptionUrl || state.remoteTranscriptionUrl,
+    remoteTranscriptionModel:
+      state.meetingRemoteTranscriptionModel ||
+      state.remoteTranscriptionModel ||
+      DEFAULT_OPENAI_COMPATIBLE_STT_MODEL,
+    remoteTranscriptionApiKey: state.meetingRemoteTranscriptionApiKey || "",
   };
 };
 
@@ -2135,6 +2111,7 @@ export async function initializeSettings(): Promise<void> {
         cortiApiKey,
         tinfoil,
         customTx,
+        meetingTx,
         customRx,
         bedrockAccessKeyId,
         bedrockSecretAccessKey,
@@ -2154,6 +2131,7 @@ export async function initializeSettings(): Promise<void> {
         window.electronAPI.getCortiKey?.(),
         window.electronAPI.getTinfoilKey?.(),
         window.electronAPI.getCustomTranscriptionKey?.(),
+        window.electronAPI.getMeetingTranscriptionKey?.(),
         window.electronAPI.getCleanupCustomKey?.(),
         window.electronAPI.getBedrockAccessKeyId?.(),
         window.electronAPI.getBedrockSecretAccessKey?.(),
@@ -2175,6 +2153,7 @@ export async function initializeSettings(): Promise<void> {
         cortiApiKey: cortiApiKey || "",
         tinfoilApiKey: tinfoil || "",
         customTranscriptionApiKey: customTx || "",
+        meetingRemoteTranscriptionApiKey: meetingTx || "",
         cleanupCustomApiKey: customRx || "",
         bedrockAccessKeyId: bedrockAccessKeyId || "",
         bedrockSecretAccessKey: bedrockSecretAccessKey || "",

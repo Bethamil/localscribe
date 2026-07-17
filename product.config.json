@@ -1,0 +1,8 @@
+{
+  "name": "LocalScribe",
+  "packageName": "localscribe",
+  "appId": "app.localscribe.desktop",
+  "protocol": "localscribe",
+  "userDataDirectory": "LocalScribe",
+  "keychainService": "LocalScribe"
+}
