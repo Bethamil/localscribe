@@ -74,7 +74,7 @@ test("self-hosted dictation uses its optional Bearer credential", async () => {
     resolveSelfHostedTranscriptionApiKey({
       transcriptionMode: "self-hosted",
       remoteTranscriptionUrl: "https://example.test/v1",
-      remoteTranscriptionApiKey: "  secret-token  ",
+      customTranscriptionApiKey: "  secret-token  ",
     }),
     "secret-token"
   );
@@ -88,7 +88,7 @@ test("self-hosted dictation keeps authentication optional", async () => {
     resolveSelfHostedTranscriptionApiKey({
       transcriptionMode: "self-hosted",
       remoteTranscriptionUrl: "https://example.test/v1",
-      remoteTranscriptionApiKey: "   ",
+      customTranscriptionApiKey: "   ",
     }),
     null
   );

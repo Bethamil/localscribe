@@ -17,8 +17,8 @@ export function resolveDictationTranscriptionTarget(settings) {
 export function resolveSelfHostedTranscriptionApiKey(settings) {
   if (!isSelfHostedTranscription(settings)) return null;
   const apiKey =
-    typeof settings?.remoteTranscriptionApiKey === "string"
-      ? settings.remoteTranscriptionApiKey.trim()
+    typeof settings?.customTranscriptionApiKey === "string"
+      ? settings.customTranscriptionApiKey.trim()
       : "";
   return apiKey || null;
 }
