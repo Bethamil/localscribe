@@ -26,7 +26,7 @@ export interface FileTranscriptionConfig {
   cloudTranscriptionProvider: string;
   cloudTranscriptionBaseUrl: string;
   cloudTranscriptionModel: string;
-  language: string;
+  language?: string;
   cortiEnvironment?: string;
   cortiTenant?: string;
   transcriptionMode?: string;

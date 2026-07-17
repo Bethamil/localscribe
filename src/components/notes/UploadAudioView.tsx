@@ -422,6 +422,8 @@ export default function UploadAudioView({ onNoteCreated, onOpenSettings }: Uploa
   };
 
   const getActiveApiKey = (): string => {
+    if (isSelfHosted) return customTranscriptionApiKey || "";
+
     switch (cloudTranscriptionProvider) {
       case "openai":
         return openaiApiKey;
@@ -450,7 +452,7 @@ export default function UploadAudioView({ onNoteCreated, onOpenSettings }: Uploa
     cloudTranscriptionProvider: cloudTranscriptionProvider as string,
     cloudTranscriptionBaseUrl: cloudTranscriptionBaseUrl || "",
     cloudTranscriptionModel,
-    language: getBaseLanguageCode(preferredLanguage) || "en",
+    language: getBaseLanguageCode(preferredLanguage),
     cortiEnvironment,
     cortiTenant,
     transcriptionMode,

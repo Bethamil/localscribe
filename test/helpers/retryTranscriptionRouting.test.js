@@ -21,6 +21,7 @@ test("selects self-hosted retry routing over stale cloud settings", async () => 
       kind: "self-hosted",
       endpoint: "http://localhost:5001/v1/audio/transcriptions",
       model: "self-hosted-model",
+      apiKey: null,
     });
   }
 });
@@ -49,7 +50,21 @@ test("normalizes supported self-hosted URLs and allows private HTTP endpoints", 
     });
     assert.equal(route.kind, "self-hosted");
     assert.equal(route.endpoint, endpoint);
+    assert.equal(route.apiKey, null);
   }
+});
+
+test("includes the configured Bearer credential for self-hosted retries", async () => {
+  const { resolveSelfHostedRetryRoute } = await load();
+  const route = resolveSelfHostedRetryRoute({
+    transcriptionMode: "self-hosted",
+    remoteTranscriptionUrl: "https://example.test/v1",
+    remoteTranscriptionModel: "whisper-1",
+    customTranscriptionApiKey: "  secret-token  ",
+  });
+
+  assert.equal(route.kind, "self-hosted");
+  assert.equal(route.apiKey, "secret-token");
 });
 
 test("fails closed for missing, malformed, or unsupported self-hosted URLs", async () => {

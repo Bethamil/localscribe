@@ -580,6 +580,7 @@ declare global {
           remoteTranscriptionType?: SelfHostedType;
           remoteTranscriptionUrl?: string;
           remoteTranscriptionModel?: string;
+          customTranscriptionApiKey?: string;
         }
       ) => Promise<{
         success: boolean;

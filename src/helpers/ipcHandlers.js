@@ -4307,6 +4307,7 @@ class IPCHandlers {
 
           const response = await proxyFetch(selfHostedRoute.endpoint, {
             method: "POST",
+            headers: buildBearerHeaders(selfHostedRoute.apiKey),
             body: formData,
           });
           if (!response.ok) {

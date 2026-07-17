@@ -1,6 +1,9 @@
 import { normalizeBaseUrl } from "../config/constants.ts";
 import { isSecureEndpoint } from "../utils/urlUtils.ts";
-import { resolveSelfHostedTranscriptionModel } from "./selfHostedTranscription.js";
+import {
+  resolveSelfHostedTranscriptionApiKey,
+  resolveSelfHostedTranscriptionModel,
+} from "./selfHostedTranscription.js";
 import { buildOpenAiTranscriptionUrl } from "./openAiCompatibleTranscription.js";
 
 export function resolveSelfHostedRetryRoute(settings) {
@@ -38,5 +41,6 @@ export function resolveSelfHostedRetryRoute(settings) {
     kind: "self-hosted",
     endpoint: buildOpenAiTranscriptionUrl(normalizedBaseUrl),
     model: resolveSelfHostedTranscriptionModel(settings),
+    apiKey: resolveSelfHostedTranscriptionApiKey(settings),
   };
 }
