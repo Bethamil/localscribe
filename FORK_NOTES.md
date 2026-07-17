@@ -3,9 +3,10 @@
 ## Provenance
 
 - Upstream: `https://github.com/OpenWhispr/openwhispr.git`
+- Published fork: `https://github.com/Bethamil/openscribe.git`
 - Baseline commit: `d5b95d6429420c45fb08c8a8f9df0926ffdd777d` (OpenWhispr 1.7.5)
-- Local branch: `feature/local-openai-only`
-- Original remote is retained as `upstream`; no publication remote was added.
+- Development branch: `feature/local-openai-only`
+- The original remote is retained as `upstream`; the fork is configured as `origin`.
 
 ## Architectural changes
 
